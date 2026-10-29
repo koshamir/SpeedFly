@@ -20,11 +20,11 @@ export class DebugLines {
   constructor(private readonly cur: TerrainCursor) {
     const lg = new THREE.BufferGeometry();
     lg.setAttribute('position', new THREE.BufferAttribute(this.linePos, 3));
-    this.line = new THREE.Line(lg, new THREE.LineBasicMaterial({ color: 0x241b3a }));
+    this.line = new THREE.Line(lg, new THREE.LineBasicMaterial({ color: 0x241b3a, transparent: true, depthTest: false }));
     this.line.frustumCulled = false;
     const kg = new THREE.BufferGeometry();
     kg.setAttribute('position', new THREE.BufferAttribute(this.keyPos, 3));
-    this.keys = new THREE.Points(kg, new THREE.PointsMaterial({ color: 0xff3366, size: 6, sizeAttenuation: false }));
+    this.keys = new THREE.Points(kg, new THREE.PointsMaterial({ color: 0xff3366, size: 6, sizeAttenuation: false, transparent: true, depthTest: false }));
     this.keys.frustumCulled = false;
     const cp = new Float32Array(CIRCLE * 3);
     for (let i = 0; i < CIRCLE; i++) {
@@ -34,10 +34,10 @@ export class DebugLines {
     }
     const cg = new THREE.BufferGeometry();
     cg.setAttribute('position', new THREE.BufferAttribute(cp, 3));
-    this.circle = new THREE.LineLoop(cg, new THREE.LineBasicMaterial({ color: 0xffffff }));
+    this.circle = new THREE.LineLoop(cg, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, depthTest: false }));
     const vg = new THREE.BufferGeometry();
     vg.setAttribute('position', new THREE.BufferAttribute(this.vecPos, 3));
-    this.vec = new THREE.LineSegments(vg, new THREE.LineBasicMaterial({ color: 0xffe14d }));
+    this.vec = new THREE.LineSegments(vg, new THREE.LineBasicMaterial({ color: 0xffe14d, transparent: true, depthTest: false }));
     this.vec.frustumCulled = false;
     this.group.add(this.line, this.keys, this.circle, this.vec);
   }

@@ -3,10 +3,15 @@ import { CONFIG } from '../config';
 import type { GameBus } from '../core/events';
 import type { Run } from '../sim/run';
 import type { TerrainCursor } from '../world/terrain';
+import { BirdView } from './birdView';
 import { CameraRig } from './camera';
+import { CoinsView } from './coinsView';
 import { DebugLines } from './debugLines';
 import { computeLayout, type Layout } from './layout';
 import { newSky, skyAt } from './palette';
+import { CloudCeiling, NightFront, Sky } from './sky';
+import { TerrainMesh } from './terrainMesh';
+import { Water } from './water';
 
 THREE.ColorManagement.enabled = false; // hand-picked sRGB colors pass straight through
 
@@ -15,25 +20,36 @@ export class Renderer {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -10, 10);
   readonly rig = new CameraRig();
+  readonly skyState = newSky();
   layout: Layout;
-  private run!: Run;
-  private cur!: TerrainCursor;
-  private lines: DebugLines | null = null;
-  private snap = true;
-  private readonly sky = newSky();
-  private readonly clear = new THREE.Color();
-  // interpolated sprite center of the last frame
+  /** Interpolated sprite center of the last frame. */
   bx = 0;
   by = 0;
+  private run!: Run;
+  private cur!: TerrainCursor;
+  private snap = true;
+  private time = 0;
+  private readonly sky = new Sky();
+  private readonly clouds = new CloudCeiling();
+  private readonly terrain = new TerrainMesh();
+  private readonly water = new Water();
+  private readonly coins = new CoinsView();
+  private readonly bird: BirdView;
+  private readonly night = new NightFront();
+  private lines: DebugLines | null = null;
+  private readonly clear = new THREE.Color();
 
   constructor(
     canvas: HTMLCanvasElement,
     bus: GameBus,
+    private readonly debug: boolean,
   ) {
     this.gl = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' });
     this.gl.outputColorSpace = THREE.LinearSRGBColorSpace;
     this.gl.autoClear = false;
     this.layout = computeLayout(innerWidth, innerHeight, false);
+    this.bird = new BirdView(bus);
+    this.scene.add(this.sky.mesh, this.clouds.mesh, this.terrain.group, this.water.mesh, this.coins.mesh, this.bird.mesh, this.night.mesh);
     bus.on('land', (e) => {
       if (e.kind === 'bad') this.rig.shake(CONFIG.camera.shakeBad);
     });
@@ -42,9 +58,14 @@ export class Renderer {
   setRun(run: Run): void {
     this.run = run;
     this.cur = run.world.terrain.cursor();
-    if (this.lines) this.scene.remove(this.lines.group);
-    this.lines = new DebugLines(run.world.terrain.cursor());
-    this.scene.add(this.lines.group);
+    this.terrain.reset(run.world);
+    this.bird.reset();
+    if (this.debug) {
+      if (this.lines) this.scene.remove(this.lines.group);
+      this.lines = new DebugLines(run.world.terrain.cursor());
+      this.lines.group.renderOrder = 9;
+      this.scene.add(this.lines.group);
+    }
     this.snap = true;
   }
 
@@ -62,18 +83,19 @@ export class Renderer {
     out.y = (1 - (y - (r.cy - r.viewH / 2)) / r.viewH) * L.gh;
   }
 
-  frame(dt: number, alpha: number): void {
+  frame(dt: number, alpha: number, asleep: boolean): void {
     const run = this.run, b = run.bird, L = this.layout;
+    this.time += dt;
     const cx = run.pcx + (run.cx - run.pcx) * alpha;
     const cy = run.pcy + (run.cy - run.pcy) * alpha;
     this.bx = cx;
     this.by = cy;
     this.cur.sample(b.x);
-    const vx = b.grounded ? b.v / Math.hypot(1, this.cur.d1) : b.vx;
+    const d1 = this.cur.d1;
+    const vx = b.grounded ? b.v / Math.hypot(1, d1) : b.vx;
     this.rig.update(dt, cx, cy, run.speed, vx, this.cur, L.logW, L.logH, this.snap);
     this.snap = false;
-    const r = this.rig;
-    const cam = this.camera;
+    const r = this.rig, cam = this.camera;
     cam.left = -r.viewW / 2;
     cam.right = r.viewW / 2;
     cam.top = r.viewH / 2;
@@ -82,10 +104,20 @@ export class Renderer {
     cam.updateProjectionMatrix();
 
     const x0 = r.cx - r.viewW / 2, x1 = r.cx + r.viewW / 2;
-    this.lines?.update(run, x0 - CONFIG.render.meshStep, x1 + CONFIG.render.meshStep, cx, cy, r.birdScale);
+    const y0 = r.cy - r.viewH / 2, y1 = r.cy + r.viewH / 2;
+    const pxPerWorld = (L.gw * L.dpr) / r.viewW;
+    const s = skyAt(run.daylight, this.skyState);
+    const margin = CONFIG.render.meshStep * 4;
+    this.sky.update(s, L.gw / L.gh, this.time);
+    this.clouds.update(x0, x1, y0, y1, s.grade);
+    this.terrain.update(x0 - margin, x1 + margin, pxPerWorld, s.grade);
+    this.water.update(run.world, x0, x1, this.time, pxPerWorld, s.grade);
+    this.coins.update(run.world, x0 - margin, x1 + margin, this.time, s.grade);
+    this.bird.update(dt, run, cx, cy, d1, r.birdScale, asleep);
+    this.night.update(x0, x1, run.night.x);
+    this.lines?.update(run, x0 - margin, x1 + margin, cx, cy, r.birdScale);
 
-    skyAt(run.daylight, this.sky);
-    const s = this.sky;
+    // side bars (desktop) take the sky color
     this.clear.setRGB((s.top[0] + s.horizon[0]) / 2, (s.top[1] + s.horizon[1]) / 2, (s.top[2] + s.horizon[2]) / 2);
     const gl = this.gl;
     gl.setScissorTest(false);

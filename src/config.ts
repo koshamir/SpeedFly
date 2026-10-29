@@ -183,7 +183,7 @@ export const CONFIG = {
   render: {
     meshStep: 8, // terrain vertex every 8 px
     chunkWidth: 1024,
-    chunkPool: 6,
+    chunkPool: 8,
     meshBottom: -5000, // terrain/water bottom (world y)
     rimWidth: 4,
     innerShadow: 12,
@@ -201,11 +201,19 @@ export const CONFIG = {
     birdTex: 256,
     rotTau: 0.06,
     diveTilt: 10, // deg nose-down while diving in air
+    diveStretchX: 1.12, // dive: body stretched along velocity
+    diveStretchY: 0.9,
     squash: 0.75,
     squashTime: 0.12,
     sunX: 0.74,
-    sunSize: 0.07,
+    sunSize: 0.045,
     waterDeep: 320,
+    seaDepth: 380, // visual seabed bowl under the water (the physical contact stays flat)
+    seaDepthPerWidth: 0.8,
+    seaBowl: 0.6,
+    wetFade: 40,
+    wetTint: 0.55,
+    wetTintDepth: 260,
     foam: 3,
   },
 
@@ -223,7 +231,8 @@ export const CONFIG = {
     { name: 'Lagoon', bands: ['#3DDCC5', '#1FA6B8', '#F7E07B', '#F49D6E', '#2D6A9F'], rim: '#D8FFF6' },
     { name: 'Ember Mesa', bands: ['#FFB547', '#FF7A45', '#E84A5F', '#8E3B76', '#FFD27A'], rim: '#FFF0C2' },
     { name: 'Mint Berry', bands: ['#B8F2A0', '#6DD3A8', '#A06CD5', '#F7A1C4', '#4E9F6E'], rim: '#F3FFE4' },
-    { name: 'Glacier', bands: ['#BDE8FF', '#7FB8F0', '#E0F7F4', '#8C9EF0', '#5A6FD6'], rim: '#FFFFFF' },
+    // Glacier reordered: the surface band must contrast with the pale horizon
+    { name: 'Glacier', bands: ['#8C9EF0', '#BDE8FF', '#7FB8F0', '#E0F7F4', '#5A6FD6'], rim: '#FFFFFF' },
   ],
 
   colors: {
@@ -235,6 +244,7 @@ export const CONFIG = {
     gold: '#FFC93C',
     blue: '#3FD5FF',
     cloud: '#FFFFFF',
+    tiers: ['#FFFFFF', '#9BE7FF', '#7CFF8A', '#FFD23F', '#FF5FA2'], // speed tier label colors
   },
 
   bot: {
@@ -257,6 +267,8 @@ export const CONFIG = {
     popupMax: 4,
     popupLife: 0.7,
     popupRise: 40,
+    popupAhead: 190, // popups sit ahead of the bird (logical px)
+    popupEdge: 150, // and stay this far from the screen edges
     bannerTime: 1.6,
     dial: 88,
   },

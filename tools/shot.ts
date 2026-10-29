@@ -17,6 +17,7 @@ interface Shot {
 interface Session {
   query: string;
   shots: Shot[];
+  desktop?: boolean; // 1600x900 @1x mouse instead of the 720x1280 @2x phone
 }
 
 const SESSIONS: Session[] = [
@@ -40,6 +41,14 @@ const SESSIONS: Session[] = [
       { name: '12-dusk', when: 'sd.run().daylight < 0.3', timeout: 90000 },
       { name: '13-night', when: 'sd.run().daylight < 0.06', timeout: 90000 },
       { name: '14-results', when: "sd.state() === 'results'", delay: 900, timeout: 90000 },
+    ],
+  },
+  {
+    query: '?bot=1&seed=5',
+    desktop: true,
+    shots: [
+      { name: '21-desktop-title', when: "sd.state() === 'title'", delay: 400 },
+      { name: '22-desktop-play', when: "sd.state() === 'playing' && sd.run().t > 4" },
     ],
   },
 ];
@@ -72,7 +81,11 @@ async function launch(): Promise<Browser> {
 }
 
 async function runSession(browser: Browser, base: string, s: Session): Promise<string[]> {
-  const ctx = await browser.newContext({ viewport: { width: 720, height: 1280 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const ctx = await browser.newContext(
+    s.desktop
+      ? { viewport: { width: 1600, height: 900 }, deviceScaleFactor: 1 }
+      : { viewport: { width: 720, height: 1280 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
+  );
   const page: Page = await ctx.newPage();
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));

@@ -1,20 +1,32 @@
+import '@fontsource/lilita-one/latin-400.css';
+import '@fontsource/fredoka/latin-500.css';
+import '@fontsource/fredoka/latin-600.css';
 import './ui/styles.css';
 import { CONFIG } from './config';
 import { EventBus, type GameEvents } from './core/events';
 import { Input } from './core/input';
 import { Loop } from './core/loop';
+import { load, save } from './core/storage';
 import { Renderer } from './render/renderer';
 import { Bot, type BotPolicy } from './sim/bot';
 import { Run } from './sim/run';
+import { Hud } from './ui/hud';
+import { Popups, type PopupKind } from './ui/popups';
+import { Screens } from './ui/screens';
 import type { TerrainMode } from './world/world';
 
+// Bootstrap, resize and the state machine: Title -> Playing <-> Paused -> Caught -> Results -> Playing.
 type State = 'title' | 'playing' | 'paused' | 'caught' | 'results';
 
 const params = new URLSearchParams(location.search);
 const debugOn = params.get('debug') === '1';
 const botParam = params.get('bot');
 const botPolicy: BotPolicy | null =
-  botParam === null || botParam === '0' ? null : botParam === 'none' || botParam === 'always' || botParam === 'naive' ? botParam : 'planner';
+  botParam === null || botParam === '0'
+    ? null
+    : botParam === 'none' || botParam === 'always' || botParam === 'naive'
+      ? botParam
+      : 'planner';
 const botDelay = Number(params.get('botDelay') ?? 0) | 0;
 const fixedSeed = params.has('seed') ? Number(params.get('seed')) | 0 : null;
 const mode: TerrainMode = params.get('terrain') === 'reference' ? 'reference' : 'islands';
@@ -26,31 +38,46 @@ const uiRoot = document.getElementById('ui')!;
 const coarse = matchMedia('(pointer: coarse)').matches;
 
 const bus = new EventBus<GameEvents>();
-const renderer = new Renderer(canvas, bus);
+const renderer = new Renderer(canvas, bus, debugOn);
 const input = new Input(root);
+const hud = new Hud(uiRoot);
+const popups = new Popups(uiRoot);
+const screens = new Screens(uiRoot);
 let run = new Run(newSeed(), mode, bus);
 let bot = botPolicy ? new Bot(run.world.terrain, botPolicy, botDelay) : null;
 renderer.setRun(run);
 
+let best = Number(load('best')) || 0;
+screens.setBest(best);
 let state: State = 'title';
 let stateT = 0;
 let stepsThisFrame = 0;
-
-const msg = document.createElement('div');
-msg.className = 'm1-msg';
-uiRoot.appendChild(msg);
+let rotated = false;
 
 function setState(s: State): void {
   state = s;
   stateT = 0;
   loop.simulate = s === 'playing';
-  msg.textContent = s === 'title' ? 'Tap to start' : s === 'paused' ? 'Paused' : s === 'results' ? 'Night fell — tap' : '';
+  hud.show(s === 'playing' || s === 'paused' || s === 'caught');
+  screens.showOnly(s === 'title' ? screens.title : s === 'paused' ? screens.pause : s === 'results' ? screens.results : null);
+  if (s === 'results') {
+    const total = Math.floor(run.score.total);
+    const isNew = total > best;
+    if (isNew) {
+      best = total;
+      save('best', String(best));
+      screens.setBest(best);
+    }
+    screens.fillResults(run, best, isNew);
+    screens.setRetryLocked(true);
+  }
 }
 
 function newRun(): void {
   run = new Run(newSeed(), mode, bus);
   bot = botPolicy ? new Bot(run.world.terrain, botPolicy, botDelay) : null;
   renderer.setRun(run);
+  popups.clear();
 }
 
 function startPlaying(): void {
@@ -58,22 +85,55 @@ function startPlaying(): void {
   setState('playing');
 }
 
-input.onPress = () => {
-  if (state === 'title') startPlaying();
-  else if (state === 'paused') setState('playing');
-  else if (state === 'results' && stateT > CONFIG.ui.retryLock) {
-    newRun();
-    startPlaying();
-  }
+function retry(): void {
+  if (state !== 'results' || stateT < CONFIG.ui.retryLock) return;
+  newRun();
+  startPlaying();
+}
+
+function togglePause(): void {
+  if (state === 'playing') setState('paused');
+  else if (state === 'paused' && !rotated) setState('playing');
+}
+
+// ---------- input ----------
+input.onPress = (kind) => {
+  if (state === 'title' && !rotated) startPlaying();
+  else if (state === 'results' && kind === 'key') retry();
 };
 input.onKey = (code) => {
-  if ((code === 'Escape' || code === 'KeyP') && (state === 'playing' || state === 'paused')) setState(state === 'playing' ? 'paused' : 'playing');
+  if (code === 'Escape' || code === 'KeyP') togglePause();
+  else if (code === 'Enter') {
+    if (state === 'title') startPlaying();
+    else if (state === 'results') retry();
+  }
 };
+hud.pause.addEventListener('click', () => state === 'playing' && setState('paused'));
+screens.resume.addEventListener('click', togglePause);
+screens.restart.addEventListener('click', () => {
+  newRun();
+  startPlaying();
+});
+screens.retry.addEventListener('click', retry);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && state === 'playing') setState('paused');
 });
+
+// ---------- game events -> popups ----------
+const scr = { x: 0, y: 0 };
+const popup = (kind: PopupKind, text: string, lift: number): void => popups.show(kind, text, lift);
+bus.on('land', (e) => {
+  if (e.kind === 'great') popup('great', e.streak > 1 ? `GREAT x${e.streak}` : 'GREAT!', 105);
+  else if (e.kind === 'splash') popup('splash', 'SPLASH!', 90);
+});
+bus.on('points', (e) => popup('points', `+${e.amount}`, 50));
+bus.on('feverStart', () => popup('fever', 'FEVER!', 170));
+bus.on('skyTouch', () => popup('sky', 'SKY TOUCH!', 120));
+bus.on('coin', (e) => e.type === 'blue' && popup('boost', 'BOOST!', 85));
+bus.on('island', (e) => popups.showBanner(`ISLAND ${e.index}`));
 bus.on('caught', () => setState('caught'));
 
+// ---------- loop ----------
 function step(): void {
   const held = bot ? bot.tick(run.bird) : input.held;
   run.step(held);
@@ -86,12 +146,27 @@ if (debugOn)
     debug = new Debug(root, () => run, { restart: () => (newRun(), startPlaying()) });
   });
 
+let frames = 0;
+let elapsed = 0;
 function frame(dt: number, alpha: number): void {
   stateT += dt;
+  frames++;
+  elapsed += dt;
   if (state === 'caught' && stateT >= CONFIG.night.caughtTime) setState('results');
+  if (state === 'results') screens.setRetryLocked(stateT < CONFIG.ui.retryLock);
   if (bot && state === 'title' && stateT >= CONFIG.bot.autoStart) startPlaying();
-  if (bot && state === 'results' && stateT >= CONFIG.bot.autoRetry) (newRun(), startPlaying());
-  renderer.frame(dt, alpha);
+  if (bot && state === 'results' && stateT >= CONFIG.bot.autoRetry) retry();
+
+  const asleep = state === 'title' || state === 'caught' || state === 'results';
+  renderer.frame(dt, alpha, asleep);
+  hud.update(run, renderer.skyState);
+  renderer.toScreen(renderer.bx, renderer.by, scr);
+  const u = renderer.layout.gw / renderer.layout.logW;
+  popups.update(dt, scr.x, scr.y, u, renderer.layout.gw);
+  if (state === 'title' || state === 'results') {
+    screens.zzz.style.left = `${scr.x + 26 * u}px`;
+    screens.zzz.style.top = `${scr.y - 90 * u}px`;
+  }
   debug?.frame(dt, stepsThisFrame, renderer.rig.z, run.held);
   stepsThisFrame = 0;
 }
@@ -104,6 +179,9 @@ function resize(): void {
   const L = renderer.resize(W, H, coarse);
   Object.assign(uiRoot.style, { left: `${L.gx}px`, top: `${L.gy}px`, width: `${L.gw}px`, height: `${L.gh}px` });
   uiRoot.style.setProperty('--u', String(L.gw / L.logW));
+  rotated = L.landscapePhone;
+  screens.setRotate(rotated);
+  if (rotated && state === 'playing') setState('paused');
 }
 new ResizeObserver(resize).observe(root);
 window.visualViewport?.addEventListener('resize', resize);
@@ -112,4 +190,10 @@ setState('title');
 loop.start();
 
 // hooks for tools/shot.ts
-(window as unknown as { __sd: unknown }).__sd = { state: () => state, run: () => run, renderer };
+(window as unknown as { __sd: unknown }).__sd = {
+  state: () => state,
+  run: () => run,
+  renderer,
+  fps: () => (elapsed > 0 ? frames / elapsed : 0),
+  overWater: () => run.world.islands.some((i) => run.bird.x > i.lipX && run.bird.x < i.landingX && !run.bird.grounded),
+};

@@ -7,7 +7,7 @@ function isUi(target: EventTarget | null): boolean {
 
 export class Input {
   /** Fresh press (pointer or space) outside UI buttons. */
-  onPress: (() => void) | null = null;
+  onPress: ((kind: 'pointer' | 'key') => void) | null = null;
   onKey: ((code: string) => void) | null = null;
   private readonly pointers = new Set<number>();
   private space = false;
@@ -50,7 +50,7 @@ export class Input {
     }
     const fresh = !this.held;
     this.pointers.add(e.pointerId);
-    if (fresh) this.onPress?.();
+    if (fresh) this.onPress?.('pointer');
   };
 
   private readonly up = (e: PointerEvent): void => {
@@ -63,7 +63,7 @@ export class Input {
       if (e.repeat) return;
       const fresh = !this.held;
       this.space = true;
-      if (fresh) this.onPress?.();
+      if (fresh) this.onPress?.('key');
       return;
     }
     if (!e.repeat) this.onKey?.(e.code);
