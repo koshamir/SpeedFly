@@ -1,8 +1,8 @@
 # CLAUDE.md — project rules (Slapjam #2, theme: Speed)
 
 You are the lead developer. You are building a mobile portrait browser game in the spirit of Tiny Wings
-(sliding over hills, speed is earned through timing). Full spec: `SPEC.md`; reference physics:
-`reference/physics-sim.mjs`. If code and SPEC disagree, SPEC wins.
+(sliding over hills, speed is earned through timing). Full spec: `SPEC.md`. Physics v2 (circle-center
+model) lives in `src/sim/bird.ts`; `reference/physics-sim.mjs` is the historical v1. If code and SPEC disagree, SPEC wins.
 The user writes in Russian — reply in Russian, short and to the point.
 
 ## Deadline
@@ -12,7 +12,7 @@ Never leave main unplayable for longer than one milestone.
 ## Stack (do not change without being asked)
 - Vite + TypeScript strict + three.js (OrthographicCamera, ShaderMaterial, BufferGeometry, InstancedMesh)
 - UI: HTML/CSS overlay above the canvas. Audio: WebAudio (synthesized SFX). No React/frameworks.
-- No physics engines (Box2D/Matter/Planck). Physics = 1:1 port of `reference/physics-sim.mjs`.
+- No physics engines (Box2D/Matter/Planck). Physics = `src/sim/bird.ts` (v2, see SPEC §3).
 - No EffectComposer/UnrealBloom post-processing (too expensive on mobile). Glow = additive sprites.
 - Fonts: `@fontsource/lilita-one`, `@fontsource/fredoka` (bundled, no CDN at runtime).
 - Dev dependencies: `lil-gui`, `playwright`, `tsx` (to run `tools/*.ts` in node).
@@ -22,6 +22,7 @@ Never leave main unplayable for longer than one milestone.
 - `npm run build` — typecheck + production build to `dist/` (vite `base: './'`)
 - `npm run sim` — headless bot simulation (node, no three/DOM), prints the acceptance table
 - `npm run shot` — playwright: 720×1280 @2x, `?bot=1&seed=3`, screenshots into `shots/`
+- `npm run feel` — feel metrics per physics preset (chatter, camera jerk, zoom, speeds); guards must PASS
 - `npm run zip` — `release/game.zip` with `index.html` at the archive root
 
 ## Architecture rules
@@ -39,7 +40,9 @@ Never leave main unplayable for longer than one milestone.
 3. `git commit` with a clear message.
 4. Report to the user: what was done, what to check by hand on a phone, known issues.
 
-## Do not "fix" the physics
-If the feel is off, change only values in `config.ts` (and report which ones). Do not add forward-pushing
-forces, speed clamps (other than `sMin`), or elastic bounces in the physics.
-A port deviating > 15% from the reference table is a porting bug, not a reason to retune.
+## Physics changes
+Feel is tuned through numbers (presets in `src/config.ts`, live tuning) — not by patching the model.
+Never add forward-pushing forces, speed clamps (other than `sMin`), elastic bounces, or anything that moves
+the sprite away from the physics state (the sprite center IS the circle center).
+After any change in `src/sim`, `src/world` or `src/render/camera.ts`: `npm run sim` (regression, preset
+classic) and `npm run feel` (guards) must PASS.

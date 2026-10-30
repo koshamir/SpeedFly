@@ -90,7 +90,7 @@ export class Renderer {
     const cy = run.pcy + (run.cy - run.pcy) * alpha;
     this.bx = cx;
     this.by = cy;
-    this.cur.sample(b.x);
+    this.cur.sample(b.grounded ? b.u : b.x);
     const d1 = this.cur.d1;
     const vx = b.grounded ? b.v / Math.hypot(1, d1) : b.vx;
     this.rig.update(dt, cx, cy, run.speed, vx, this.cur, L.logW, L.logH, this.snap);

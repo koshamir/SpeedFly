@@ -62,6 +62,7 @@ export class IslandGen implements TerrainGen {
   private sy = 1;
   private totalHills = 0;
   private arcId = 0;
+  private lastType = '';
   private island!: Island;
 
   constructor(
@@ -100,24 +101,37 @@ export class IslandGen implements TerrainGen {
     else this.addEnd(t);
   }
 
+  /** One hill of the rhythm: a symmetric cosine wave of a type (CONFIG.hills), valley -> peak. */
   private addHill(t: Terrain): void {
-    const C = CONFIG.terrain, I = CONFIG.islands, r = this.r;
+    const Hc = CONFIG.hills, I = CONFIG.islands, r = this.r;
     const px = t.lastX, py = t.lastY;
-    // valley
-    let dx = (C.dxMin + r() * (C.dxMax - C.dxMin)) * this.sx;
-    const vy = -C.valleyJitter + r() * 2 * C.valleyJitter;
-    const vx = px + widen(dx, py, vy);
+    const onboard = this.k === 1 && this.hill < I.onboardHills;
+    let ty = Hc.types[0];
+    const z = r(); // always drawn: the stream stays aligned whatever the branch
+    if (!onboard) {
+      let acc = 0;
+      for (const c of Hc.types) {
+        acc += c.weight;
+        if (z <= acc) {
+          ty = c;
+          break;
+        }
+      }
+      if (ty.name === this.lastType && Hc.noRepeat.includes(ty.name)) ty = Hc.types[0];
+    }
+    this.lastType = ty.name;
+    const prog = this.hills > 1 ? this.hill / (this.hills - 1) : 0;
+    const grow = Hc.growFrom + (Hc.growTo - Hc.growFrom) * prog;
+    let w = ty.w * this.sx * (1 + Hc.jitter * (2 * r() - 1));
+    const h = ty.h * this.sy * grow * (onboard ? I.onboardH : 1) * (1 + Hc.jitter * (2 * r() - 1));
+    w = Math.max(w, (Math.PI * h) / Hc.maxSlope); // max slope of a cosine wave = pi h / w
+    const vy = Hc.baseY + Hc.baseJitter * (2 * r() - 1);
+    // valley (joins from the previous peak / start) then the peak half a wave later
+    const vx = px + widen(w / 2, py, vy);
     t.push(vx, vy);
     this.downslopeCoins(px, py, vx, vy);
     this.blueCoin(vx, vy);
-    // peak
-    dx = (C.dxMin + r() * (C.dxMax - C.dxMin)) * this.sx;
-    const onboard = this.k === 1 && this.hill < I.onboardHills;
-    const frac = onboard
-      ? I.onboardFracMin + r() * (I.onboardFracMax - I.onboardFracMin)
-      : C.hFracMin + r() * (C.hFracMax - C.hFracMin);
-    const hy = vy + dx * frac * this.sy;
-    t.push(vx + widen(dx, vy, hy), hy);
+    t.push(vx + w / 2, vy + h);
     this.hill++;
     this.totalHills++;
   }

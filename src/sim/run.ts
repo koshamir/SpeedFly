@@ -29,8 +29,6 @@ export class Run {
   cy = 0;
   pcx = 0;
   pcy = 0;
-  private t0nx = 0;
-  private t0ny = 1;
   private feverT0 = 0;
   private islandIdx = 0;
   private coinPtr = 0;
@@ -60,7 +58,8 @@ export class Run {
     this.world = new World(seed, mode);
     this.cur = this.world.terrain.cursor();
     const startX = mode === 'reference' ? CONFIG.terrain.refStartX : 0;
-    this.bird.reset(this.cur, startX, CONFIG.physics.startSpeed);
+    const P = CONFIG.physics;
+    this.bird.reset(this.cur, startX, P.startSpeed, P.birdRadius, P.gRelease);
     this.updateCenter();
     this.pcx = this.cx;
     this.pcy = this.cy;
@@ -121,10 +120,6 @@ export class Run {
 
   private onTakeoff(): void {
     const b = this.bird;
-    // takeoff normal: the center offset blends from here to (0, R)
-    const L = Math.hypot(1, this.cur.d1);
-    this.t0nx = -this.cur.d1 / L;
-    this.t0ny = 1 / L;
     this.skyTouched = false;
     const e = this.eTakeoff;
     e.x = b.x;
@@ -244,23 +239,9 @@ export class Run {
     }
   }
 
+  /** Sprite center = the physics state (circle center): continuous through takeoffs and landings. */
   private updateCenter(): void {
-    const b = this.bird, R = CONFIG.physics.birdRadius;
-    let nx: number, ny: number;
-    if (b.grounded) {
-      // the cursor was last sampled at b.x by the physics step
-      const d1 = this.cur.d1, L = Math.hypot(1, d1);
-      nx = -d1 / L;
-      ny = 1 / L;
-    } else {
-      const f = Math.min(1, b.airT / CONFIG.physics.airBlend);
-      nx = this.t0nx * (1 - f);
-      ny = this.t0ny + (1 - this.t0ny) * f;
-      const l = Math.hypot(nx, ny);
-      nx /= l;
-      ny /= l;
-    }
-    this.cx = b.x + nx * R;
-    this.cy = b.y + ny * R;
+    this.cx = this.bird.x;
+    this.cy = this.bird.y;
   }
 }

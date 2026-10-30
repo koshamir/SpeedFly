@@ -49,7 +49,7 @@ export class Bot {
   }
 
   private want(b: Bird): boolean {
-    this.cur.sample(b.x);
+    this.cur.sample(b.grounded ? b.u : b.x);
     const d1 = this.cur.d1;
     switch (this.policy) {
       case 'none':
@@ -130,7 +130,7 @@ export function runBot(policy: BotPolicy, seed = 7, T = 240, delay = 0): BotResu
   const terrain = world.terrain;
   const cur = terrain.cursor();
   const b = new Bird();
-  b.reset(cur, CONFIG.terrain.refStartX, P.startSpeed);
+  b.reset(cur, CONFIG.terrain.refStartX, P.startSpeed, P.birdRadius, P.gRelease);
   const bot = new Bot(terrain, policy, delay);
   const speeds = new Float64Array(Math.ceil(T / P.dt / CONFIG.bot.sampleEvery) + 2);
   const flights: number[] = [];

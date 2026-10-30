@@ -69,13 +69,14 @@ export class DebugLines {
     this.circle.position.set(cx, cy, 0);
     this.circle.scale.set(R, R, 1);
     const b = run.bird, D = CONFIG.debug, p = this.vecPos;
-    // normal at the contact point
-    p[0] = b.x;
-    p[1] = b.y;
-    p[3] = b.x + ((cx - b.x) / CONFIG.physics.birdRadius) * D.normalLen;
-    p[4] = b.y + ((cy - b.y) / CONFIG.physics.birdRadius) * D.normalLen;
+    // normal at the contact point (grounded) / center (air)
+    this.cur.sample(b.u);
+    const L = Math.hypot(1, this.cur.d1);
+    p[0] = b.grounded ? b.u : cx;
+    p[1] = b.grounded ? this.cur.y : cy;
+    p[3] = p[0] - (this.cur.d1 / L) * D.normalLen;
+    p[4] = p[1] + (1 / L) * D.normalLen;
     // velocity
-    this.cur.sample(b.x);
     const vx = b.grounded ? b.v / Math.hypot(1, this.cur.d1) : b.vx;
     const vy = b.grounded ? vx * this.cur.d1 : b.vy;
     p[6] = cx;

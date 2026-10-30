@@ -1,7 +1,22 @@
 // Every tunable number of the game lives here (CLAUDE.md). One object, live-editable with ?debug=1.
-// Physics values are the reference baseline (reference/physics-sim.mjs) — retune only here.
+// Physics v2 (feel pass): circle-center contact, exact air step, presets below. Retune only here.
+
+/** Physics presets: each overrides CONFIG.physics. Pick with CONFIG.physicsPreset / applyPreset(). */
+export const PHYSICS_PRESETS = {
+  // v1 numbers on the v2 model
+  classic: { gRelease: 1000, gDive: 3000, diveRamp: 0, airLift: 0, muGround: 0.03, drag: 0.00004, greatBoost: 1.05, landingAssist: 0.35, greatAngle: 15 },
+  // best guess at the Tiny Wings feel: softer dive onset, slight glide while falling, more forgiving landings
+  smooth: { gRelease: 1000, gDive: 3200, diveRamp: 0.05, airLift: 0.12, muGround: 0.02, drag: 0.000035, greatBoost: 1.08, landingAssist: 0.45, greatAngle: 17 },
+  // fastest acceleration, big speed payoff for good timing
+  rush: { gRelease: 900, gDive: 3600, diveRamp: 0.03, airLift: 0, muGround: 0.015, drag: 0.00003, greatBoost: 1.1, landingAssist: 0.5, greatAngle: 17 },
+  // long floaty flights, slow dive onset
+  floaty: { gRelease: 800, gDive: 3000, diveRamp: 0.08, airLift: 0.25, muGround: 0.02, drag: 0.000035, greatBoost: 1.06, landingAssist: 0.45, greatAngle: 18 },
+};
+export type PresetName = keyof typeof PHYSICS_PRESETS;
 
 export const CONFIG = {
+  physicsPreset: 'smooth' as PresetName,
+
   physics: {
     dt: 1 / 240, // fixed step (s)
     gRelease: 1000, // gravity, finger up (ground + air)
@@ -16,8 +31,10 @@ export const CONFIG = {
     okAngle: 28, // worse = BAD
     greatBoost: 1.05,
     landingAssist: 0.35,
-    birdRadius: 22, // sprite center = contact + normal * R
-    airBlend: 0.15, // s: in air the center offset blends to (0, R)
+    birdRadius: 22, // the bird is a circle: state x,y = its CENTER (= sprite center)
+    diveRamp: 0, // s: gravity eases toward the held/released value (0 = instant switch)
+    airLift: 0, // share of gravity cancelled while released AND falling (wings open, glide)
+    takeoffMargin: 0, // leave the ground only when N < -margin * g (0 = pure physics; >0 = stickier crests)
     muWater: 0.25,
     sMinWater: 120,
     startSpeed: 300,
@@ -55,13 +72,12 @@ export const CONFIG = {
     hillsBase: 16,
     hillsStep: 4,
     hillsMax: 40,
-    sxStep: 0.06,
-    sxMax: 1.45,
-    syStep: 0.08,
-    syMax: 1.6,
-    onboardHills: 3, // first hills of island 1 are gentle
-    onboardFracMin: 0.3,
-    onboardFracMax: 0.4,
+    sxStep: 0.05, // per-island width scale of the hill types
+    sxMax: 1.4,
+    syStep: 0.07, // per-island height scale
+    syMax: 1.5,
+    onboardHills: 3, // first hills of island 1 are 'normal' and lower
+    onboardH: 0.7,
     launchValleyY: -120,
     launchValleyDx: 420,
     lipY: 380,
@@ -81,6 +97,23 @@ export const CONFIG = {
     bandWidthMin: 70,
     bandWidthMax: 110,
     paletteCount: 6,
+  },
+
+  // Hill rhythm (island mode): a hill = one symmetric cosine wave (valley -> peak -> valley) of a TYPE.
+  // Few types, small jitter, slow growth along the island = predictable, learnable rhythm.
+  hills: {
+    types: [
+      { name: 'normal', w: 760, h: 170, weight: 0.6 }, // w = valley-to-valley width, h = peak height
+      { name: 'deep', w: 760, h: 240, weight: 0.25 }, // bigger pump
+      { name: 'wide', w: 1100, h: 230, weight: 0.15 }, // long launch
+    ],
+    noRepeat: ['deep', 'wide'], // never twice in a row
+    jitter: 0.04, // +-4% on w and h
+    growFrom: 0.85, // h multiplier along the island: first hill -> last hill
+    growTo: 1.12,
+    baseY: 0, // valley height
+    baseJitter: 10,
+    maxSlope: 1.1, // max |h'| of a wave = pi h / w (w is widened to respect it)
   },
 
   coins: {
@@ -163,9 +196,12 @@ export const CONFIG = {
     refFromBottom: 0.3,
     altFrac: 0.62,
     altMargin: 160,
-    zoomOutRate: 6,
-    zoomInRate: 2.2,
-    yRate: 5,
+    // critically damped springs (rad/s): continuous velocity, no camera jerks
+    wZoomOut: 5,
+    wZoomIn: 2.5,
+    wY: 5,
+    wRef: 4, // ground reference
+    wX: 5, // horizontal follow with velocity feed-forward (0 = locked to the bird)
     topMargin: 70, // hard guard: bird center never closer to the top (logical px)
     birdScaleMax: 1.55,
     shakeBad: 10,
@@ -281,4 +317,11 @@ export const CONFIG = {
 };
 
 export type Config = typeof CONFIG;
+
+/** Copy a preset into CONFIG.physics (live: the next step uses it). */
+export function applyPreset(name: PresetName): void {
+  CONFIG.physicsPreset = name;
+  Object.assign(CONFIG.physics, PHYSICS_PRESETS[name]);
+}
+applyPreset(CONFIG.physicsPreset);
 export type PhysicsConfig = Config['physics'];

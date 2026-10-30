@@ -1,9 +1,12 @@
-// npm run sim — headless acceptance (SPEC §12): bots on ?terrain=reference, 240 s, seeds 7/11/23.
-// Checks every seed against the SPEC table (15% tolerance) and against the reference implementation.
-//   --no-ref   skip running reference/physics-sim.mjs
+// npm run sim — headless physics regression (SPEC §12): bots on ?terrain=reference, 240 s, seeds 7/11/23,
+// physics v2 with the 'classic' preset (the model check is independent of the preset you play with).
+// Checks every seed against the v2 table (15% tolerance).
+//   --ref   also print reference/physics-sim.mjs (v1 contact-point model) for comparison (informational)
+// Feel metrics (jerk, chatter, camera) and preset comparison: npm run feel.
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { applyPreset } from '../src/config';
 import { runBot, type BotPolicy, type BotResult } from '../src/sim/bot';
 
 const T = 240;
@@ -19,14 +22,14 @@ interface Spec {
   great: [number, number] | null; // share of landings
 }
 
-// SPEC §12 physics acceptance. "~x" values are given as [x, x].
+// Physics v2 baseline ('classic' preset, measured 2026-10-30). "~x" values are given as [x, x].
 const SPECS: Spec[] = [
-  { name: 'none', policy: 'none', delay: 0, night: [22, 26], v: [290, 290], great: null },
-  { name: 'always', policy: 'always', delay: 0, night: [34, 41], v: [320, 320], great: null },
-  { name: 'naive', policy: 'naive', delay: 0, night: [53, 63], v: [610, 610], great: [0, 0.1] },
-  { name: 'planner+100ms', policy: 'planner', delay: 6, night: [84, 94], v: [850, 850], great: [0, 0.1] },
-  { name: 'planner+50ms', policy: 'planner', delay: 3, night: [193, 228], v: [1280, 1440], great: [0.25, 0.25] },
-  { name: 'planner', policy: 'planner', delay: 0, night: 'survive', v: [2200, 2420], great: [0.9, 1] },
+  { name: 'none', policy: 'none', delay: 0, night: [22, 26], v: [275, 291], great: null },
+  { name: 'always', policy: 'always', delay: 0, night: [31, 41], v: [278, 316], great: null },
+  { name: 'naive', policy: 'naive', delay: 0, night: [51, 62], v: [519, 544], great: [0, 0.15] },
+  { name: 'planner+100ms', policy: 'planner', delay: 6, night: [106, 121], v: [862, 900], great: [0.15, 0.21] },
+  { name: 'planner+50ms', policy: 'planner', delay: 3, night: [180, 187], v: [1162, 1299], great: [0.34, 0.36] },
+  { name: 'planner', policy: 'planner', delay: 0, night: 'survive', v: [2245, 2443], great: [0.9, 1] },
 ];
 
 /** Relative distance from a range (0 inside). */
@@ -58,7 +61,8 @@ type RefModule = {
 };
 
 async function main(): Promise<void> {
-  const useRef = !process.argv.includes('--no-ref');
+  applyPreset('classic');
+  const useRef = process.argv.includes('--ref');
   const ref = useRef
     ? ((await import(pathToFileURL(resolve('reference/physics-sim.mjs')).href)) as RefModule)
     : null;
@@ -94,7 +98,7 @@ async function main(): Promise<void> {
         );
         refCells = [String(q.nightCatches_s), String(q.v_p50), s.great ? pct(qg) : '—'];
       }
-      const ok = dSpec <= TOL && dRef <= TOL;
+      const ok = dSpec <= TOL; // the v1 reference (dRef) is informational only
       if (!ok) fails++;
       rows.push([
         s.name,
@@ -122,7 +126,7 @@ async function main(): Promise<void> {
     prev = r[0];
     lines.push(fmt(r));
   }
-  console.log(`\nSunset Dash — physics acceptance (terrain=reference, ${T} s, seeds ${SEEDS.join('/')}, tol ${TOL * 100}%)\n`);
+  console.log(`\nSunset Dash — physics v2 regression (preset classic, terrain=reference, ${T} s, seeds ${SEEDS.join('/')}, tol ${TOL * 100}%)\n`);
   console.log(lines.join('\n'));
 
   const g = guard();

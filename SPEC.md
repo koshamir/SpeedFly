@@ -37,7 +37,22 @@ Events: `takeoff`, `land{kind:'great'|'ok'|'bad'|'splash',angle,airTime,streak}`
 `feverEnd`, `skyTouch`, `coin{type}`, `island{index}`, `speedTier{tier}`, `caught`.
 States: `Title → Playing ⇄ Paused → Caught (1.2 s) → Results → Playing` (restart ≤ 1 s).
 
-## 3. Physics — 1:1 port of `reference/physics-sim.mjs`
+## 3. Physics v2 — `src/sim/bird.ts` (feel pass, 2026-10-30)
+The bird is a **circle of radius R**; the physics state (x, y) is its **center = the sprite center**.
+On the ground the center rides the offset curve `C(u) = P(u) + R·n(u)` of the contact point u
+(center-path curvature `κc = κ/(1 − Rκ)`); in the air the center flies ballistically (exact step
+`x += v·dt + a·dt²/2`); touchdown = the center reaches the offset curve (contact u by Newton).
+A takeoff integrates the rest of its step in the air. A graze inside the takeoff step is no event.
+Knobs on top of v1: `diveRamp` (s, gravity eases to the held/released value), `airLift` (share of g
+cancelled while released AND falling), `takeoffMargin` (stickier crests). Presets: `PHYSICS_PRESETS`
+in `src/config.ts` — classic / smooth (default) / rush / floaty. Regression: `npm run sim`; feel: `npm run feel`.
+Why v2: v1 chattered ground↔air every step on convex upslopes (9–16 takeoffs/s, bird moving at half
+speed until the real launch) and drew the sprite with a blended normal offset (lurch after takeoff,
+snap on landing). v2: 0.3–0.8 takeoffs/s, no sprite pops.
+
+The mechanism below (gravity switch, N < 0 takeoff, inelastic landing) is unchanged from v1.
+
+### v1 mechanism (still valid)
 The bird is a **contact point** on a height function `y = h(x)`, Y up, units = world px (720 px = screen width at zoom 1).
 
 Mechanism (why it works — do not "simplify"):
@@ -70,6 +85,12 @@ Sprite rotation: target `atan2(vy, vx)` (on ground: tangent), smoothing τ = 0.0
 Water (§4.2): `muWater = 0.25`, `sMinWater = 120`, landing on water = `splash` (resets streak, no classification).
 
 ## 4. World
+### 4.0 Hill rhythm (island mode, v2)
+A hill = one symmetric cosine wave (valley → peak → valley) of a **type** from `CONFIG.hills.types`
+(normal / deep / wide, weighted; deep and wide never twice in a row), ±4% jitter, height growing
+0.85 → 1.12 along the island, per-island scale `islands.sxStep/syStep`. Few types + small jitter =
+predictable, learnable rhythm (v1 randomized every half-wave independently). `?terrain=reference` keeps v1.
+
 ### 4.1 Height function
 Key points alternate valley/peak; between them cosine interpolation
 `y = y0 + A(1 − cos(πt))`, `A = (y1 − y0)/2` (smooth, zero slope at key points). h, h', h'' analytic,
@@ -119,6 +140,8 @@ at that height in the world — the player sees the target when the camera zooms
   Speedometer: km/h = px/s × 0.12 (3000 px/s = 360 km/h).
 
 ## 6. Camera (portrait — the main difference from the original)
+v2: zoom (log space), Y and the ground reference are critically damped springs (`wZoomOut/wZoomIn/wY/wRef`);
+X tracks the anchored target with velocity feed-forward (`wX`, 0 = locked). Rates below are v1 history.
 View width at zoom 1 = 720 world px; height = 720 × (screen H/W). Portrait's problem is little forward
 visibility, so the camera adapts:
 - Bird X anchor: 27% of width at v ≤ 600 → 20% at v ≥ 2000.
