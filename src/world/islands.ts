@@ -107,7 +107,9 @@ export class IslandGen implements TerrainGen {
     const px = t.lastX, py = t.lastY;
     const onboard = this.k === 1 && this.hill < I.onboardHills;
     let ty = Hc.types[0];
-    const z = r(); // always drawn: the stream stays aligned whatever the branch
+    let wsum = 0;
+    for (const c of Hc.types) wsum += c.weight;
+    const z = r() * wsum; // always drawn: the stream stays aligned whatever the branch; weights need not sum to 1
     if (!onboard) {
       let acc = 0;
       for (const c of Hc.types) {

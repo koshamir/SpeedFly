@@ -42,7 +42,7 @@ export class DebugLines {
     this.group.add(this.line, this.keys, this.circle, this.vec);
   }
 
-  update(run: Run, x0: number, x1: number, cx: number, cy: number, scale: number): void {
+  update(run: Run, x0: number, x1: number, cx: number, cy: number): void {
     const step = Math.max(CONFIG.render.meshStep, (x1 - x0) / (MAX_PTS - 1));
     let n = 0;
     for (let x = x0; x <= x1 && n < MAX_PTS; x += step, n++) {
@@ -65,7 +65,7 @@ export class DebugLines {
     kg.setDrawRange(0, k);
     (kg.attributes.position as THREE.BufferAttribute).needsUpdate = true;
 
-    const R = CONFIG.physics.birdRadius * scale;
+    const R = CONFIG.physics.birdRadius; // the physics circle (the sprite may be drawn larger)
     this.circle.position.set(cx, cy, 0);
     this.circle.scale.set(R, R, 1);
     const b = run.bird, D = CONFIG.debug, p = this.vecPos;

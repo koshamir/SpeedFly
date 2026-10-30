@@ -115,7 +115,7 @@ export class Renderer {
     this.coins.update(run.world, x0 - margin, x1 + margin, this.time, s.grade);
     this.bird.update(dt, run, cx, cy, d1, r.birdScale, asleep);
     this.night.update(x0, x1, run.night.x);
-    this.lines?.update(run, x0 - margin, x1 + margin, cx, cy, r.birdScale);
+    this.lines?.update(run, x0 - margin, x1 + margin, cx, cy);
 
     // side bars (desktop) take the sky color
     this.clear.setRGB((s.top[0] + s.horizon[0]) / 2, (s.top[1] + s.horizon[1]) / 2, (s.top[2] + s.horizon[2]) / 2);

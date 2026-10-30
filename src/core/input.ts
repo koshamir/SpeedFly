@@ -27,7 +27,9 @@ export class Input {
     root.addEventListener('contextmenu', prevent);
     document.addEventListener('gesturestart', prevent);
     document.addEventListener('dblclick', prevent);
-    document.addEventListener('touchmove', prevent, { passive: false });
+    // [data-scroll] panels (Tune drawer) keep native scrolling and slider drags
+    const scrollable = (e: Event): boolean => e.target instanceof Element && e.target.closest('[data-scroll]') !== null;
+    document.addEventListener('touchmove', (e) => scrollable(e) || e.preventDefault(), { passive: false });
   }
 
   get held(): boolean {

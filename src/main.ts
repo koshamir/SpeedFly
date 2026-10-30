@@ -2,6 +2,7 @@ import '@fontsource/lilita-one/latin-400.css';
 import '@fontsource/fredoka/latin-500.css';
 import '@fontsource/fredoka/latin-600.css';
 import './ui/styles.css';
+import tuningFile from '../tuning.json';
 import { CONFIG } from './config';
 import { EventBus, type GameEvents } from './core/events';
 import { Input } from './core/input';
@@ -12,14 +13,20 @@ import { Bot, type BotPolicy } from './sim/bot';
 import { Run } from './sim/run';
 import { Hud } from './ui/hud';
 import { Popups, type PopupKind } from './ui/popups';
+import { applyTuning, parseTuning, worldKey } from './tuning';
 import { Screens } from './ui/screens';
+import type { TunePanel } from './ui/tune';
 import type { TerrainMode } from './world/world';
+
+// tuning.json is what ships: preset + overrides, applied before anything reads CONFIG.
+applyTuning(parseTuning(tuningFile));
 
 // Bootstrap, resize and the state machine: Title -> Playing <-> Paused -> Caught -> Results -> Playing.
 type State = 'title' | 'playing' | 'paused' | 'caught' | 'results';
 
 const params = new URLSearchParams(location.search);
 const debugOn = params.get('debug') === '1';
+const tuneOn = params.get('tune') === '1';
 const botParam = params.get('bot');
 const botPolicy: BotPolicy | null =
   botParam === null || botParam === '0'
@@ -30,7 +37,8 @@ const botPolicy: BotPolicy | null =
 const botDelay = Number(params.get('botDelay') ?? 0) | 0;
 const fixedSeed = params.has('seed') ? Number(params.get('seed')) | 0 : null;
 const mode: TerrainMode = params.get('terrain') === 'reference' ? 'reference' : 'islands';
-const newSeed = (): number => fixedSeed ?? ((Math.random() * 0x7fffffff) | 0);
+const randomSeed = (): number => (Math.random() * 0x7fffffff) | 0;
+const newSeed = (): number => fixedSeed ?? randomSeed();
 
 const root = document.getElementById('root')!;
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -73,8 +81,8 @@ function setState(s: State): void {
   }
 }
 
-function newRun(): void {
-  run = new Run(newSeed(), mode, bus);
+function newRun(seed = newSeed()): void {
+  run = new Run(seed, mode, bus);
   bot = botPolicy ? new Bot(run.world.terrain, botPolicy, botDelay) : null;
   renderer.setRun(run);
   popups.clear();
@@ -91,6 +99,14 @@ function retry(): void {
   startPlaying();
 }
 
+/** Same or new seed: rebuild the world; the title stays the title, anything else plays at once. */
+function restart(seed: number): void {
+  newRun(seed);
+  if (state === 'title') return;
+  run.start();
+  setState(rotated ? 'paused' : 'playing');
+}
+
 function togglePause(): void {
   if (state === 'playing') setState('paused');
   else if (state === 'paused' && !rotated) setState('playing');
@@ -102,6 +118,7 @@ input.onPress = (kind) => {
   else if (state === 'results' && kind === 'key') retry();
 };
 input.onKey = (code) => {
+  if (tune?.key(code)) return;
   if (code === 'Escape' || code === 'KeyP') togglePause();
   else if (code === 'Enter') {
     if (state === 'title') startPlaying();
@@ -140,10 +157,36 @@ function step(): void {
   stepsThisFrame++;
 }
 
-let debug: { frame(dt: number, steps: number, zoom: number, held: boolean): void } | null = null;
+let debug: { frame(dt: number, steps: number, zoom: number, held: boolean): void; refresh(): void } | null = null;
 if (debugOn)
   void import('./debug/debug').then(({ Debug }) => {
     debug = new Debug(root, () => run, { restart: () => (newRun(), startPlaying()) });
+  });
+
+// ?tune=1: curated feel panel (dev and production builds)
+let tune: TunePanel | null = null;
+if (tuneOn)
+  void import('./ui/tune').then(({ TunePanel }) => {
+    tune = new TunePanel(uiRoot, {
+      run: () => run,
+      zoom: () => renderer.rig.z,
+      restart,
+      randomSeed,
+      changed: () => debug?.refresh(),
+    });
+  });
+
+// dev: saving tuning.json applies it in every open tab (phone over LAN too) without a reload.
+// Physics/camera are live on the next step; a world change (hills/islands/gRelease) restarts the same seed.
+if (import.meta.hot)
+  import.meta.hot.accept('../tuning.json', (mod) => {
+    if (!mod) return;
+    const before = worldKey();
+    applyTuning(parseTuning(mod.default));
+    if (worldKey() !== before) restart(run.seed);
+    tune?.sync();
+    debug?.refresh();
+    console.info('[tuning] tuning.json applied');
   });
 
 let frames = 0;
@@ -168,6 +211,7 @@ function frame(dt: number, alpha: number): void {
     screens.zzz.style.top = `${scr.y - 90 * u}px`;
   }
   debug?.frame(dt, stepsThisFrame, renderer.rig.z, run.held);
+  tune?.frame(dt);
   stepsThisFrame = 0;
 }
 

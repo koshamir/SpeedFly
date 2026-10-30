@@ -22,12 +22,16 @@ Never leave main unplayable for longer than one milestone.
 - `npm run build` — typecheck + production build to `dist/` (vite `base: './'`)
 - `npm run sim` — headless bot simulation (node, no three/DOM), prints the acceptance table
 - `npm run shot` — playwright: 720×1280 @2x, `?bot=1&seed=3`, screenshots into `shots/`
-- `npm run feel` — feel metrics per physics preset (chatter, camera jerk, zoom, speeds); guards must PASS
+- `npm run feel` — feel metrics per physics preset + `tuning.json` (chatter, camera jerk, zoom, speeds, on-screen hill
+  relief); guards must PASS. `FEEL_SET="islands.syStep=0.12" npm run feel -- tuning` tries values without saving
 - `npm run zip` — `release/game.zip` with `index.html` at the archive root
 
 ## Architecture rules
 - `src/sim/` and `src/world/` must not import three.js or the DOM. Deterministic: seeded RNG (mulberry32).
 - Every numeric constant lives only in `src/config.ts` (one object, live-editable via lil-gui with `?debug=1`).
+- The shipped feel values are `tuning.json` (preset + overrides of `physics/hills/camera/islands`, applied over
+  `config.ts` at boot by `src/tuning.ts`). The user tunes it with `?tune=1` (Save writes the file in dev, HMR
+  applies it in every tab). Treat `tuning.json` as the user's choice: do not edit it unless asked.
 - Fixed timestep 1/240 s (max 8 steps per frame); rendering interpolates between states.
 - Systems communicate through a typed event bus (`core/events.ts`). Render/audio/UI only subscribe.
 - No allocations in hot loops (sim step, particles, mesh updates).

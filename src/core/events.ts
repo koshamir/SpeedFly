@@ -1,12 +1,15 @@
 // Typed event bus. The sim emits, render/audio/UI only subscribe.
 // Payload objects are reused by the emitter: handlers must copy what they keep.
+// Positions: x, y = the bird's CENTER (= sprite center, the physics state); gx, gy = the ground
+// contact point under it (dust/impact FX go there, not at x, y).
+// Micro-hops (bird.ts EV_HOP) never reach the bus; 'takeoff' fires ~once per real flight.
 
 export type LandKind = 'great' | 'ok' | 'bad' | 'splash';
 export type CoinType = 'gold' | 'blue';
 
 export interface GameEvents {
-  takeoff: { x: number; y: number; speed: number };
-  land: { kind: LandKind; angle: number; airTime: number; streak: number; x: number; y: number; speed: number };
+  takeoff: { x: number; y: number; gx: number; gy: number; speed: number };
+  land: { kind: LandKind; angle: number; airTime: number; streak: number; x: number; y: number; gx: number; gy: number; speed: number };
   feverStart: { streak: number };
   feverEnd: { duration: number };
   skyTouch: { x: number; y: number };

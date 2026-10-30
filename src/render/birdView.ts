@@ -173,7 +173,11 @@ export class BirdView {
     const size = 2 * CONFIG.physics.birdRadius * Rr.birdSprite * scale;
     const sx = 1 + (Rr.diveStretchX - 1) * this.stretch + (1 - sq) * 0.6;
     const sy = (1 + (Rr.diveStretchY - 1) * this.stretch) * sq;
-    this.mesh.position.set(x, y - (1 - sq) * CONFIG.physics.birdRadius * scale, 0);
+    // (x, y) is the physics circle center. Squash compresses toward the feet (sprite-local down,
+    // = -normal on the ground); the zoom-out enlargement grows upward so the bigger body still sits
+    // on the ground. Both rules are the same in the air: no pop at takeoff/landing.
+    const R = CONFIG.physics.birdRadius, drop = (1 - sq) * R * scale, lift = (scale - 1) * R;
+    this.mesh.position.set(x + Math.sin(this.angle) * drop, y - Math.cos(this.angle) * drop + lift, 0);
     this.mesh.rotation.z = this.angle;
     this.mesh.scale.set(size * sx, size * sy, 1);
   }

@@ -1,6 +1,7 @@
 // npm run feel — headless FEEL metrics on the real game (islands terrain, real sim + real camera rig, 60 fps).
-//   npm run feel                 all presets, quick
-//   npm run feel -- smooth rush  only these presets
+//   npm run feel                 all presets + 'tuning' (= tuning.json, what ships)
+//   npm run feel -- smooth rush  only these presets ('tuning' = tuning.json)
+//   FEEL_TUNING=path.json npm run feel -- tuning   another tuning file (try a candidate before saving it)
 //   FEEL_SET="camera.wX=6,physics.diveRamp=0.04" npm run feel -- smooth   override any CONFIG number (after the preset)
 // Columns:
 //   takeoffs/s   real takeoffs per second (v1 chattered at 9-16/s; healthy < 1.5)
@@ -9,12 +10,16 @@
 //   camJ>2       frames with camera jerk > 2 px/frame^2 per 90 s (healthy: <= 5)
 //   zoom p99     |d ln z / dt| — how fast the view breathes (healthy: < 0.8)
 //   drift p99    |bird screen x - anchor|, logical px — how far the smoothed camera lets the bird wander
-import { applyPreset, CONFIG, PHYSICS_PRESETS, type PresetName } from '../src/config';
+//   relief p50   on-screen terrain relief (max h - min h across the view) x zoom, logical px of 1280:
+//                how big the hills LOOK. 'relief isl4+' = the same on island 4 and later (zoomed out, fast)
+import { readFileSync } from 'node:fs';
+import { CONFIG, PHYSICS_PRESETS, type PresetName } from '../src/config';
 import { EventBus, type GameEvents } from '../src/core/events';
 import { CameraRig } from '../src/render/camera';
 import { EV_LAND, EV_TAKEOFF } from '../src/sim/bird';
 import { Bot, type BotPolicy } from '../src/sim/bot';
 import { Run } from '../src/sim/run';
+import { applyTuning, emptyTuning, parseTuning } from '../src/tuning';
 
 const SEEDS = (process.env.FEEL_SEEDS ?? '3,9,21').split(',').map(Number);
 const T = 90;
@@ -38,6 +43,8 @@ interface Row {
   camSpikes: number;
   zoom: number;
   drift: number;
+  relief: number;
+  reliefLate: number;
 }
 
 const q = (a: number[], p: number): number => {
@@ -51,6 +58,8 @@ function one(policy: BotPolicy, delay: number, seed: number): Row {
   const bot = new Bot(run.world.terrain, policy, delay);
   const rig = new CameraRig();
   const cur = run.world.terrain.cursor();
+  const rc = run.world.terrain.cursor();
+  const relief: number[] = [], reliefLate: number[] = [];
   const W = CONFIG.view.logW, Hh = CONFIG.view.logH, fdt = 1 / 60;
   const spf = Math.round(fdt / CONFIG.physics.dt);
   const bird: number[][] = [], cam: number[][] = [], speeds: number[] = [];
@@ -72,6 +81,15 @@ function one(policy: BotPolicy, delay: number, seed: number): Row {
     rig.update(fdt, run.cx, run.cy, run.speed, vx, cur, W, Hh, f === 0);
     cam.push([rig.cx, rig.cy, rig.z, rig.viewW, rig.viewH, rig.anchor]);
     bird.push([run.cx, run.cy]);
+    if (f % 6 === 0) {
+      let lo = Infinity, hi = -Infinity;
+      for (let x = rig.cx - rig.viewW / 2, x1 = rig.cx + rig.viewW / 2; x <= x1; x += 16) {
+        const y = rc.height(x);
+        if (y < lo) lo = y;
+        if (y > hi) hi = y;
+      }
+      (run.island >= 4 ? reliefLate : relief).push((hi - lo) * rig.z);
+    }
     speeds.push(run.speed);
   }
   const scr = (i: number, P: number[]): number[] => {
@@ -100,6 +118,8 @@ function one(policy: BotPolicy, delay: number, seed: number): Row {
     camSpikes: (cj.filter((x) => x > 2).length * 90) / Math.max(1, secs),
     zoom: q(zr, 0.99),
     drift: q(dr, 0.99),
+    relief: q([...relief, ...reliefLate], 0.5),
+    reliefLate: reliefLate.length ? q(reliefLate, 0.5) : NaN,
   };
 }
 
@@ -113,14 +133,16 @@ function overrides(): void {
   }
 }
 
-const want = process.argv.slice(2).filter((a) => a in PHYSICS_PRESETS) as PresetName[];
-const presets = want.length ? want : (Object.keys(PHYSICS_PRESETS) as PresetName[]);
-const keep = CONFIG.physicsPreset;
+const want = process.argv.slice(2).filter((a) => a in PHYSICS_PRESETS || a === 'tuning');
+const presets = want.length ? want : [...Object.keys(PHYSICS_PRESETS), 'tuning'];
+const tuningPath = process.env.FEEL_TUNING ?? 'tuning.json';
 const out: Record<string, string | number>[] = [];
 let worstTakeoff = 0, worstCam = 0, worstZoom = 0;
 for (const p of presets) {
-  applyPreset(p);
+  if (p === 'tuning') applyTuning(parseTuning(JSON.parse(readFileSync(tuningPath, 'utf8'))));
+  else applyTuning(emptyTuning(p as PresetName)); // pure preset on CONFIG defaults
   overrides();
+  const label = p === 'tuning' ? `${tuningPath.replace(/^.*[\/]/, '')}(${CONFIG.physicsPreset})` : p;
   for (const [name, policy, delay] of BOTS) {
     const rs = SEEDS.map((s) => one(policy, delay, s));
     const avg = (k: keyof Row): number => rs.reduce((a, r) => a + r[k], 0) / rs.length;
@@ -130,7 +152,7 @@ for (const p of presets) {
       worstZoom = Math.max(worstZoom, avg('zoom'));
     }
     out.push({
-      preset: p,
+      preset: label,
       bot: name,
       'survived s': Math.round(avg('surv')),
       island: +avg('island').toFixed(1),
@@ -143,10 +165,11 @@ for (const p of presets) {
       'camJ>2': Math.round(avg('camSpikes')),
       'zoom p99': +avg('zoom').toFixed(2),
       'drift p99': Math.round(avg('drift')),
+      'relief p50': Math.round(avg('relief')),
+      'relief isl4+': Number.isNaN(avg('reliefLate')) ? '—' : Math.round(avg('reliefLate')),
     });
   }
 }
-applyPreset(keep);
 console.log(`\nFeel metrics — islands terrain, ${T} s, seeds ${SEEDS.join('/')} (averages)\n`);
 console.table(out);
 const ok = worstTakeoff < 1.5 && worstCam <= 5 && worstZoom < 0.8;

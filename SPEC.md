@@ -245,6 +245,8 @@ the end of island 1.
 
 ## 10. Tools
 - `?debug=1`: lil-gui over the whole config (live edits + "Copy config JSON"), FPS, physics overlay
+- `?tune=1` (dev and prod): curated Tune drawer at the top — presets, A/B, key sliders, readout, Restart/New seed/
+  Copy JSON/Save. `tuning.json` = shipped values (dev Save → vite `/__tuning` → file → HMR in all tabs).
   (key points, normal, landing angle, speed, state, N).
 - `?bot=1` — planner autopilot from the reference. `?seed=N`. `?terrain=reference`.
 - `npm run sim` / `npm run shot` — see CLAUDE.md.

@@ -24,7 +24,7 @@ export class Run {
   fever = false;
   island = 1;
   skyTouched = false; // this flight
-  // sprite center (contact + normal * R), current and previous step (render interpolation)
+  // sprite center = bird circle center (bird.x, bird.y), current and previous step (render interpolation)
   cx = 0;
   cy = 0;
   pcx = 0;
@@ -39,8 +39,8 @@ export class Run {
   lastAngle = 0;
 
   // reused event payloads (handlers copy what they keep)
-  private readonly eTakeoff: GameEvents['takeoff'] = { x: 0, y: 0, speed: 0 };
-  private readonly eLand: GameEvents['land'] = { kind: 'ok', angle: 0, airTime: 0, streak: 0, x: 0, y: 0, speed: 0 };
+  private readonly eTakeoff: GameEvents['takeoff'] = { x: 0, y: 0, gx: 0, gy: 0, speed: 0 };
+  private readonly eLand: GameEvents['land'] = { kind: 'ok', angle: 0, airTime: 0, streak: 0, x: 0, y: 0, gx: 0, gy: 0, speed: 0 };
   private readonly eFeverStart: GameEvents['feverStart'] = { streak: 0 };
   private readonly eFeverEnd: GameEvents['feverEnd'] = { duration: 0 };
   private readonly eSky: GameEvents['skyTouch'] = { x: 0, y: 0 };
@@ -124,6 +124,8 @@ export class Run {
     const e = this.eTakeoff;
     e.x = b.x;
     e.y = b.y;
+    e.gx = b.u; // contact x under the center (bird.u), not bird.x
+    e.gy = this.cur.height(b.u);
     e.speed = b.v;
     this.bus.emit('takeoff', e);
   }
@@ -154,6 +156,8 @@ export class Run {
     e.streak = b.streak;
     e.x = this.cx;
     e.y = this.cy;
+    e.gx = b.u; // touchdown contact (bird.u)
+    e.gy = this.cur.height(b.u);
     e.speed = b.v;
     this.bus.emit('land', e);
     this.points(Scoring.landing(kind === 'great', b.evAirTime, b.streak));
