@@ -62,7 +62,7 @@ export class IslandGen implements TerrainGen {
   private sy = 1;
   private totalHills = 0;
   private arcId = 0;
-  private lastType = '';
+  private lastSpecial = false;
   private island!: Island;
 
   constructor(
@@ -101,39 +101,40 @@ export class IslandGen implements TerrainGen {
     else this.addEnd(t);
   }
 
-  /** One hill of the rhythm: a symmetric cosine wave of a type (CONFIG.hills), valley -> peak. */
+  /** One hill = a valley then the next peak (key points), cosine-interpolated by the terrain. */
   private addHill(t: Terrain): void {
     const Hc = CONFIG.hills, I = CONFIG.islands, r = this.r;
     const px = t.lastX, py = t.lastY;
     const onboard = this.k === 1 && this.hill < I.onboardHills;
-    let ty = Hc.types[0];
-    let wsum = 0;
-    for (const c of Hc.types) wsum += c.weight;
-    const z = r() * wsum; // always drawn: the stream stays aligned whatever the branch; weights need not sum to 1
-    if (!onboard) {
-      let acc = 0;
-      for (const c of Hc.types) {
-        acc += c.weight;
-        if (z <= acc) {
-          ty = c;
-          break;
-        }
-      }
-      if (ty.name === this.lastType && Hc.noRepeat.includes(ty.name)) ty = Hc.types[0];
-    }
-    this.lastType = ty.name;
+    // fixed number of draws per hill: the stream stays aligned whatever the branches/mode
+    const rDeep = r(), rWide = r(), rW1 = r(), rW2 = r(), rD = r(), rP = r();
+    const prevSpecial = this.lastSpecial && Hc.noRepeat > 0;
+    const deep = !onboard && !prevSpecial && rDeep < Hc.deepChance;
+    const wide = !onboard && !prevSpecial && !deep && rWide < Hc.wideChance;
+    this.lastSpecial = deep || wide;
     const prog = this.hills > 1 ? this.hill / (this.hills - 1) : 0;
     const grow = Hc.growFrom + (Hc.growTo - Hc.growFrom) * prog;
-    let w = ty.w * this.sx * (1 + Hc.jitter * (2 * r() - 1));
-    const h = ty.h * this.sy * grow * (onboard ? I.onboardH : 1) * (1 + Hc.jitter * (2 * r() - 1));
-    w = Math.max(w, (Math.PI * h) / Hc.maxSlope); // max slope of a cosine wave = pi h / w
-    const vy = Hc.baseY + Hc.baseJitter * (2 * r() - 1);
-    // valley (joins from the previous peak / start) then the peak half a wave later
-    const vx = px + widen(w / 2, py, vy);
+    const jit = (z: number, a: number): number => 1 + a * (2 * z - 1);
+    const hw = Hc.halfW * this.sx * (wide ? Hc.wideMul : 1);
+    const w1 = hw * jit(rW1, Hc.halfWJitter);
+    const w2 = Hc.symmetric > 0 ? w1 : hw * jit(rW2, Hc.halfWJitter);
+    let vy: number, ny: number;
+    if (Hc.mode === 1) {
+      // zigzag (haqu): down by dy from the previous point, then up by an independent dy; clamped
+      const dyS = this.sy * grow * (onboard ? I.onboardH : 1);
+      vy = Math.max(Hc.zzMinY, py - (Hc.zzMinDY + rD * Hc.zzRangeDY) * dyS);
+      ny = Math.min(Hc.zzMaxY, vy + (Hc.zzMinDY + rP * Hc.zzRangeDY) * dyS);
+    } else {
+      // peaks: level peaks, each valley its own depth below them
+      const depth = Hc.depth * this.sy * grow * (deep ? Hc.deepMul : 1) * (onboard ? I.onboardH : 1) * jit(rD, Hc.depthJitter);
+      ny = Hc.peakY + Hc.peakJitter * (2 * rP - 1);
+      vy = Math.min(py, ny) - depth;
+    }
+    const vx = px + widen(w1, py, vy);
     t.push(vx, vy);
     this.downslopeCoins(px, py, vx, vy);
     this.blueCoin(vx, vy);
-    t.push(vx + w / 2, vy + h);
+    t.push(vx + widen(w2, vy, ny), ny);
     this.hill++;
     this.totalHills++;
   }

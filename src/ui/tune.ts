@@ -57,17 +57,27 @@ function sliders(): Slider[] {
     S('physics', 'landingAssist', 0, 0.8, 0.01),
     S('physics', 'takeoffMargin', 0, 0.3, 0.01),
   ];
-  for (const ty of CONFIG.hills.types) {
-    out.push(
-      { section: 'hills', path: ['types', ty.name, 'w'], label: `${ty.name}.w`, min: 400, max: 1600, step: 10 },
-      { section: 'hills', path: ['types', ty.name, 'h'], label: `${ty.name}.h`, min: 60, max: 400, step: 5 },
-      { section: 'hills', path: ['types', ty.name, 'weight'], label: `${ty.name}.wt`, min: 0, max: 1, step: 0.01 },
-    );
-  }
   out.push(
-    S('hills', 'jitter', 0, 0.15, 0.005),
+    S('hills', 'mode', 0, 1, 1, 'mode 0 peaks / 1 zigzag'),
+    S('hills', 'halfW', 200, 800, 5),
+    S('hills', 'halfWJitter', 0, 0.3, 0.005),
+    S('hills', 'symmetric', 0, 1, 1),
+    S('hills', 'peakY', 0, 400, 5),
+    S('hills', 'peakJitter', 0, 80, 1),
+    S('hills', 'depth', 60, 400, 5),
+    S('hills', 'depthJitter', 0, 0.5, 0.01),
+    S('hills', 'deepChance', 0, 0.6, 0.01),
+    S('hills', 'deepMul', 1, 2.2, 0.01),
+    S('hills', 'wideChance', 0, 0.6, 0.01),
+    S('hills', 'wideMul', 1, 2, 0.01),
+    S('hills', 'noRepeat', 0, 1, 1),
     S('hills', 'growFrom', 0.5, 1.5, 0.01),
     S('hills', 'growTo', 0.5, 1.5, 0.01),
+    S('hills', 'maxSlope', 0.5, 1.6, 0.01),
+    S('hills', 'zzMinDY', 20, 300, 5),
+    S('hills', 'zzRangeDY', 0, 300, 5),
+    S('hills', 'zzMinY', -300, 200, 5),
+    S('hills', 'zzMaxY', 100, 600, 5),
     S('islands', 'sxStep', 0, 0.15, 0.005, 'isl.sxStep'),
     S('islands', 'sxMax', 1, 2, 0.01, 'isl.sxMax'),
     S('islands', 'syStep', 0, 0.15, 0.005, 'isl.syStep'),

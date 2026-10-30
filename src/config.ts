@@ -99,21 +99,36 @@ export const CONFIG = {
     paletteCount: 6,
   },
 
-  // Hill rhythm (island mode): a hill = one symmetric cosine wave (valley -> peak -> valley) of a TYPE.
-  // Few types, small jitter, slow growth along the island = predictable, learnable rhythm.
+  // Hills (island mode). Key points alternate PEAK / VALLEY; cosine interpolation between them
+  // (Tikhonov / haqu tiny-wings principle). Two generators:
+  //  mode 0 'peaks' (default, Tiny Wings look): peaks sit at ~one level, every valley has its own
+  //         depth; now and then a valley is deep (bigger pump) or wide (longer, softer slopes).
+  //  mode 1 'zigzag' (haqu/Tikhonov original): each key point = previous +- (minDY..minDY+rangeDY),
+  //         clamped to [zzMinY, zzMaxY] -> peaks drift up and down (random walk).
+  // halfW = horizontal distance peak -> valley; depth = peak -> valley drop. Per-island scale:
+  // islands.sxStep/sxMax (halfW), islands.syStep/syMax (depth / dy).
   hills: {
-    types: [
-      { name: 'normal', w: 760, h: 170, weight: 0.6 }, // w = valley-to-valley width, h = peak height
-      { name: 'deep', w: 760, h: 240, weight: 0.25 }, // bigger pump
-      { name: 'wide', w: 1100, h: 230, weight: 0.15 }, // long launch
-    ],
-    noRepeat: ['deep', 'wide'], // never twice in a row
-    jitter: 0.04, // +-4% on w and h
-    growFrom: 0.85, // h multiplier along the island: first hill -> last hill
+    mode: 0, // 0 peaks, 1 zigzag
+    halfW: 380, // peak -> valley distance (a whole hill = 2 * halfW)
+    halfWJitter: 0.08, // +-8%
+    symmetric: 1, // 1: both slopes of a valley share one width (a symmetric bowl); 0: each slope rolls its own
+    peakY: 200, // peak level (the nest is at 200)
+    peakJitter: 12, // +- px per peak
+    depth: 170, // peak -> valley drop
+    depthJitter: 0.15, // +-15%
+    deepChance: 0.2, // share of valleys that are deep
+    deepMul: 1.45, // depth multiplier of a deep valley
+    wideChance: 0.15, // share of valleys that are wide
+    wideMul: 1.35, // halfW multiplier of a wide valley
+    noRepeat: 1, // 1: a deep/wide valley is never followed by another special one
+    growFrom: 0.85, // depth multiplier along the island: first valley -> last valley
     growTo: 1.12,
-    baseY: 0, // valley height
-    baseJitter: 10,
-    maxSlope: 1.1, // max |h'| of a wave = pi h / w (w is widened to respect it)
+    maxSlope: 1.1, // max |h'| (a slope's width is widened to respect it)
+    // zigzag mode (haqu: minDY 60, rangeDY 60 on a 320 px tall screen, clamp [20, 320]; x1.5 for our 720 px width)
+    zzMinDY: 90,
+    zzRangeDY: 90,
+    zzMinY: -60,
+    zzMaxY: 330,
   },
 
   coins: {
