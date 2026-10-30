@@ -754,3 +754,57 @@ button {
 .tune-json.shown {
   display: block;
 }
+/* Hills tab: taller drawer, sticky profile preview, labelled blocks, on/off switches */
+.tune.hills .tune-drawer {
+  max-height: 74%;
+}
+.tune-preview {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 4px 0 6px;
+  background: rgb(24, 18, 44);
+}
+.tune-canvas {
+  display: block;
+  width: 100%;
+  height: 110px;
+}
+.tune-hstats {
+  white-space: pre-line;
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: #d8f3ff;
+  margin-top: 3px;
+}
+.tune-group {
+  margin-top: 8px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
+.tune-group.hidden {
+  display: none;
+}
+.tune-ghead b {
+  color: #ffd23f;
+  margin-right: 8px;
+}
+.tune-ghead span {
+  font-size: 12px;
+  color: #a99fcf;
+}
+.tune-switch {
+  grid-column: 2 / 4;
+  justify-self: start;
+  min-width: 88px;
+  min-height: 40px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.14);
+  font-weight: 600;
+}
+.tune-switch.on,
+.tune-pvonly.on {
+  background: #b6ff5c;
+  color: #241b3a;
+}

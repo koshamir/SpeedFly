@@ -85,11 +85,15 @@ Sprite rotation: target `atan2(vy, vx)` (on ground: tangent), smoothing τ = 0.0
 Water (§4.2): `muWater = 0.25`, `sMinWater = 120`, landing on water = `splash` (resets streak, no classification).
 
 ## 4. World
-### 4.0 Hill rhythm (island mode, v2)
-A hill = one symmetric cosine wave (valley → peak → valley) of a **type** from `CONFIG.hills.types`
-(normal / deep / wide, weighted; deep and wide never twice in a row), ±4% jitter, height growing
-0.85 → 1.12 along the island, per-island scale `islands.sxStep/syStep`. Few types + small jitter =
-predictable, learnable rhythm (v1 randomized every half-wave independently). `?terrain=reference` keeps v1.
+### 4.0 Hill generator (island mode, v3: key points)
+Key points alternate PEAK / VALLEY with cosine interpolation between them (Tikhonov / haqu tiny-wings
+principle). One hill = a valley then the next peak; `CONFIG.hills`, fixed 6 RNG draws per hill (stream alignment).
+- `mode 0` peaks (default): peaks at one level `peakY ± peakJitter`; each valley `depth·(1 ± depthJitter)` below
+  the lower neighbouring peak; `deepChance` valleys ×`deepMul` deeper, `wideChance` valleys ×`wideMul` wider;
+  `noRepeat` = never two special valleys in a row. Slope width `halfW·(1 ± halfWJitter)`, `symmetric` = one width per bowl.
+- `mode 1` zigzag (haqu): each key point = previous ∓ (`zzMinDY` + rand·`zzRangeDY`), clamped to [`zzMinY`, `zzMaxY`].
+- Depth/dy grow `growFrom → growTo` along the island; per-island scale `islands.sx*/sy*`; slopes widened to |h'| ≤ `maxSlope`.
+- Tuned live in the Tune panel's Hills tab (profile preview). `?terrain=reference` keeps v1.
 
 ### 4.1 Height function
 Key points alternate valley/peak; between them cosine interpolation
@@ -106,7 +110,7 @@ keep key points ≥ 3 screen widths ahead, drop those > 2 screens behind.
 | k | min(16+4(k−1), 40) | min(1+0.06(k−1), 1.45) | min(1+0.08(k−1), 1.6) | next | alternate strata/diagonal |
 
 - Start: nest on a peak at x=0, y=200, bird asleep. The day starts on the first touch.
-- Island 1: first 3 hills are gentle (height 0.30–0.40·dx) for onboarding.
+- Island 1: first 3 hills are gentle (depth ×`onboardH`, no deep/wide valleys) for onboarding.
 - Island end: launch valley y=−120 (dx 420) → ramp up to the lip y=380 (dx 720) → cliff down to water
   y=−220 (dx 260) → water (flat) → rise to a "landing hill" peak y=260 → downslope → new hills.
 - Gap placement from ballistics: launch from the lip at 32° with speed `vT(k) = min(950+110(k−1), 2000)`

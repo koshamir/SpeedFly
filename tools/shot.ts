@@ -18,6 +18,7 @@ interface Session {
   query: string;
   shots: Shot[];
   desktop?: boolean; // 1600x900 @1x mouse instead of the 720x1280 @2x phone
+  init?: string; // script run before the page loads (e.g. storage for an open Tune panel)
 }
 
 const SESSIONS: Session[] = [
@@ -50,6 +51,12 @@ const SESSIONS: Session[] = [
       { name: '21-desktop-title', when: "sd.state() === 'title'", delay: 400 },
       { name: '22-desktop-play', when: "sd.state() === 'playing' && sd.run().t > 4" },
     ],
+  },
+  {
+    // Tune panel open on the Hills tab (profile preview drawn)
+    query: '?tune=1&bot=1&seed=3',
+    init: "localStorage.setItem('sunsetdash.tuneTab', '1'); sessionStorage.setItem('sd.tuneOpen', '1');",
+    shots: [{ name: '31-tune-hills', when: "sd.state() === 'playing' && sd.run().t > 2 && !!document.querySelector('.tune-hstats')?.textContent", delay: 300 }],
   },
 ];
 
@@ -86,6 +93,7 @@ async function runSession(browser: Browser, base: string, s: Session): Promise<s
       ? { viewport: { width: 1600, height: 900 }, deviceScaleFactor: 1 }
       : { viewport: { width: 720, height: 1280 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
   );
+  if (s.init) await ctx.addInitScript(s.init);
   const page: Page = await ctx.newPage();
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));

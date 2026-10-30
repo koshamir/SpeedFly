@@ -135,8 +135,8 @@ export function segCross(x0: number, y0: number, x1: number, y1: number, ys: num
 }
 
 /** dx widened so that |h'| <= maxSlope on a segment from y0 to y1 (max slope of a cosine seg = A*pi/w). */
-export function widen(dx: number, y0: number, y1: number): number {
-  const need = (Math.abs(y1 - y0) * Math.PI) / (2 * CONFIG.terrain.maxSlope);
+export function widen(dx: number, y0: number, y1: number, maxSlope = CONFIG.terrain.maxSlope): number {
+  const need = (Math.abs(y1 - y0) * Math.PI) / (2 * maxSlope);
   return dx < need ? need : dx;
 }
 

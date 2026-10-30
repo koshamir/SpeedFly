@@ -2,8 +2,8 @@ import { applyPreset, CONFIG, PHYSICS_PRESETS, type PresetName } from './config'
 
 // tuning.json = the shipped tuning: a physics preset + overrides on top of the CONFIG defaults.
 //   { "preset": "smooth", "physics": {}, "hills": {}, "camera": {}, "islands": {} }
-// Each section object overrides numbers of CONFIG[section]; hills.types is keyed by type name:
-//   "hills": { "jitter": 0.05, "types": { "deep": { "h": 260 } } }
+// Each section object overrides numbers of CONFIG[section], e.g. "hills": { "depth": 190, "mode": 1 }.
+// Unknown keys (e.g. the old hills.types) are ignored with a warning.
 // No DOM: used by main.ts (boot + HMR), the Tune panel, the vite /__tuning middleware and npm run feel.
 
 export const TUNE_SECTIONS = ['physics', 'hills', 'camera', 'islands'] as const;
@@ -53,13 +53,7 @@ function merge(dst: Obj, patch: Obj, path: string): void {
   for (const k of Object.keys(patch)) {
     const p = patch[k], d = dst[k], at = `${path}.${k}`;
     if (typeof d === 'number' && typeof p === 'number' && Number.isFinite(p)) dst[k] = p;
-    else if (k === 'types' && Array.isArray(d) && isObj(p)) {
-      for (const name of Object.keys(p)) {
-        const ty = (d as Obj[]).find((x) => x.name === name);
-        if (ty && isObj(p[name])) merge(ty, p[name] as Obj, `${at}.${name}`);
-        else console.warn(`tuning: unknown hill type ${at}.${name}`);
-      }
-    } else if (isObj(d) && isObj(p)) merge(d, p, at);
+    else if (isObj(d) && isObj(p)) merge(d, p, at);
     else console.warn(`tuning: ignored ${at} (unknown key or not a number)`);
   }
 }
@@ -86,13 +80,6 @@ function diff(cur: Obj, ref: Obj): Obj {
     const c = cur[k], r = ref[k];
     if (typeof c === 'number' && typeof r === 'number') {
       if (!same(c, r)) out[k] = round(c);
-    } else if (k === 'types' && Array.isArray(c) && Array.isArray(r)) {
-      const types: Obj = {};
-      (c as Obj[]).forEach((ty, i) => {
-        const d = diff(ty, r[i] as Obj);
-        if (Object.keys(d).length) types[String(ty.name)] = d;
-      });
-      if (Object.keys(types).length) out[k] = types;
     } else if (isObj(c) && isObj(r)) {
       const d = diff(c, r);
       if (Object.keys(d).length) out[k] = d;

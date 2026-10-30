@@ -11,6 +11,8 @@ export interface Island {
   wx0: number; // water surface span
   wx1: number;
   landingX: number; // landing-hill peak: passing it fires island{k+1}
+  hillK0: number; // global key-point index range [hillK0, hillK1) of the island's hills (valley, peak, ...)
+  hillK1: number;
   surfaceY: number;
   palette: number;
   bandMode: number; // 0 strata, 1 diagonal
@@ -45,7 +47,7 @@ export function islandGap(k: number): { vT: number; R: number; rise: number; wat
 export function referenceIsland(): Island {
   return {
     k: 1, x0: -Infinity, x1: Infinity, lipX: Infinity, wx0: Infinity, wx1: Infinity, landingX: Infinity,
-    surfaceY: 0, palette: 0, bandMode: 0, bandWidth: CONFIG.islands.bandWidthMin, bandSeed: 0,
+    hillK0: Infinity, hillK1: Infinity, surfaceY: 0, palette: 0, bandMode: 0, bandWidth: CONFIG.islands.bandWidthMin, bandSeed: 0,
   };
 }
 
@@ -87,6 +89,7 @@ export class IslandGen implements TerrainGen {
     this.hill = 0;
     this.island = {
       k: this.k, x0, x1: Infinity, lipX: Infinity, wx0: Infinity, wx1: Infinity, landingX: Infinity,
+      hillK0: Infinity, hillK1: Infinity,
       surfaceY: I.waterY + I.waterSurface,
       palette: (this.basePalette + this.k - 1) % I.paletteCount,
       bandMode: (this.k - 1) % 2,
@@ -105,6 +108,7 @@ export class IslandGen implements TerrainGen {
   private addHill(t: Terrain): void {
     const Hc = CONFIG.hills, I = CONFIG.islands, r = this.r;
     const px = t.lastX, py = t.lastY;
+    if (this.hill === 0) this.island.hillK0 = t.base + t.n;
     const onboard = this.k === 1 && this.hill < I.onboardHills;
     // fixed number of draws per hill: the stream stays aligned whatever the branches/mode
     const rDeep = r(), rWide = r(), rW1 = r(), rW2 = r(), rD = r(), rP = r();
@@ -130,11 +134,11 @@ export class IslandGen implements TerrainGen {
       ny = Hc.peakY + Hc.peakJitter * (2 * rP - 1);
       vy = Math.min(py, ny) - depth;
     }
-    const vx = px + widen(w1, py, vy);
+    const vx = px + widen(w1, py, vy, Hc.maxSlope);
     t.push(vx, vy);
     this.downslopeCoins(px, py, vx, vy);
     this.blueCoin(vx, vy);
-    t.push(vx + widen(w2, vy, ny), ny);
+    t.push(vx + widen(w2, vy, ny, Hc.maxSlope), ny);
     this.hill++;
     this.totalHills++;
   }
@@ -142,6 +146,7 @@ export class IslandGen implements TerrainGen {
   private addEnd(t: Terrain): void {
     const I = CONFIG.islands;
     const px = t.lastX, py = t.lastY;
+    this.island.hillK1 = t.base + t.n;
     const lvx = px + widen(I.launchValleyDx, py, I.launchValleyY);
     t.push(lvx, I.launchValleyY);
     const lipX = lvx + I.rampDx;

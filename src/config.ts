@@ -51,7 +51,7 @@ export const CONFIG = {
     hFracMin: 0.35, // peak height above valley as a fraction of dx
     hFracMax: 0.6,
     valleyJitter: 60, // valleys at y in [-60, 60]
-    maxSlope: 1.0, // max |h'|; dx is widened to respect it
+    maxSlope: 1.0, // max |h'| of the reference generator and the island end; dx is widened to respect it
     nestY: 200, // start peak (the nest) at x = 0
     prerollDx: 420, // key points behind the nest (visual only)
     prerollY: 40,
@@ -72,11 +72,11 @@ export const CONFIG = {
     hillsBase: 16,
     hillsStep: 4,
     hillsMax: 40,
-    sxStep: 0.05, // per-island width scale of the hill types
+    sxStep: 0.05, // per-island width scale of the hills (hills.halfW)
     sxMax: 1.4,
-    syStep: 0.07, // per-island height scale
+    syStep: 0.07, // per-island height scale (hills.depth / zigzag dy)
     syMax: 1.5,
-    onboardHills: 3, // first hills of island 1 are 'normal' and lower
+    onboardHills: 3, // first hills of island 1: no deep/wide valleys, depth x onboardH
     onboardH: 0.7,
     launchValleyY: -120,
     launchValleyDx: 420,

@@ -4,11 +4,13 @@ import type { Run } from '../sim/run';
 import {
   applyTuning, currentTuning, mergePhysics, physicsDiff, resetPhysics, tuningJson, type TuneSection, type Tuning,
 } from '../tuning';
+import { HillPreview } from './hillPreview';
 import { el } from './hud';
 
 // ?tune=1: the curated feel panel (dev AND production build). A drawer at the TOP of the screen
 // (the bottom 25% is the thumb zone); everything is [data-ui] so it never counts as a press.
-// Physics/camera sliders are live; hills/islands sliders restart the run with the same seed on release.
+// Physics/camera sliders are live; hills/islands controls redraw the Hills tab profile preview while
+// dragging and restart the run with the same seed on release (unless "Preview only").
 
 export interface TuneHost {
   run(): Run;
@@ -22,14 +24,25 @@ export interface TuneHost {
 
 interface Slider {
   section: TuneSection;
-  path: string[]; // inside the section; ['types', name, key] for hill types
+  path: string[]; // inside the section
   label: string;
   min: number;
   max: number;
   step: number;
+  toggle?: boolean; // 0/1 on/off switch instead of a range
   input?: HTMLInputElement;
   value?: HTMLSpanElement;
+  sw?: HTMLButtonElement;
   row?: HTMLDivElement;
+}
+
+/** A labelled block of the Hills tab; `mode` = shown only in that hills.mode. */
+interface Group {
+  title: string;
+  hint: string;
+  mode?: number;
+  keys: string[]; // 'hills.halfW', 'islands.sxStep'
+  el?: HTMLDivElement;
 }
 
 type Obj = Record<string, unknown>;
@@ -43,6 +56,22 @@ const TABS: [string, TuneSection[]][] = [
 const S = (section: TuneSection, key: string, min: number, max: number, step: number, label = key): Slider => ({
   section, path: [key], label, min, max, step,
 });
+const SW = (section: TuneSection, key: string): Slider => ({ section, path: [key], label: key, min: 0, max: 1, step: 1, toggle: true });
+
+const HILL_GROUPS: Group[] = [
+  { title: 'Ритм', hint: 'ширина склонов и насколько холмы одинаковые', keys: ['hills.halfW', 'hills.halfWJitter', 'hills.symmetric'] },
+  { title: 'Вершины', hint: 'уровень гребней; разброс = непредсказуемые взлёты', mode: 0, keys: ['hills.peakY', 'hills.peakJitter'] },
+  {
+    title: 'Впадины', hint: 'глубже = больше скорости с холма, но жёстче посадки', mode: 0,
+    keys: ['hills.depth', 'hills.depthJitter', 'hills.deepChance', 'hills.deepMul', 'hills.wideChance', 'hills.wideMul', 'hills.noRepeat'],
+  },
+  {
+    title: 'Рост', hint: 'по острову (grow) и от острова к острову (isl.*)',
+    keys: ['hills.growFrom', 'hills.growTo', 'islands.sxStep', 'islands.sxMax', 'islands.syStep', 'islands.syMax', 'hills.maxSlope'],
+  },
+  { title: 'Zigzag', hint: 'случайное блуждание вверх-вниз, вершины на разной высоте', mode: 1, keys: ['hills.zzMinDY', 'hills.zzRangeDY', 'hills.zzMinY', 'hills.zzMaxY'] },
+];
+const isWorld = (s: Slider): boolean => s.section === 'hills' || s.section === 'islands';
 
 function sliders(): Slider[] {
   const out: Slider[] = [
@@ -58,10 +87,9 @@ function sliders(): Slider[] {
     S('physics', 'takeoffMargin', 0, 0.3, 0.01),
   ];
   out.push(
-    S('hills', 'mode', 0, 1, 1, 'mode 0 peaks / 1 zigzag'),
     S('hills', 'halfW', 200, 800, 5),
     S('hills', 'halfWJitter', 0, 0.3, 0.005),
-    S('hills', 'symmetric', 0, 1, 1),
+    SW('hills', 'symmetric'),
     S('hills', 'peakY', 0, 400, 5),
     S('hills', 'peakJitter', 0, 80, 1),
     S('hills', 'depth', 60, 400, 5),
@@ -70,7 +98,7 @@ function sliders(): Slider[] {
     S('hills', 'deepMul', 1, 2.2, 0.01),
     S('hills', 'wideChance', 0, 0.6, 0.01),
     S('hills', 'wideMul', 1, 2, 0.01),
-    S('hills', 'noRepeat', 0, 1, 1),
+    SW('hills', 'noRepeat'),
     S('hills', 'growFrom', 0.5, 1.5, 0.01),
     S('hills', 'growTo', 0.5, 1.5, 0.01),
     S('hills', 'maxSlope', 0.5, 1.6, 0.01),
@@ -96,7 +124,6 @@ function sliders(): Slider[] {
 function target(s: Slider): [Obj, string] {
   let o = CONFIG[s.section] as unknown as Obj;
   const p = s.path;
-  if (p[0] === 'types') return [(o.types as Obj[]).find((t) => t.name === p[1])!, p[2]];
   for (let i = 0; i < p.length - 1; i++) o = o[p[i]] as Obj;
   return [o, p[p.length - 1]];
 }
@@ -136,6 +163,12 @@ export class TunePanel {
   private readonly tabBtns: HTMLButtonElement[] = [];
   private readonly lists: HTMLDivElement[] = [];
   private readonly sliders = sliders();
+  private readonly groups = HILL_GROUPS.map((g) => ({ ...g }));
+  private readonly modeChips: HTMLButtonElement[] = [];
+  private previewBtn!: HTMLButtonElement;
+  private preview!: HillPreview;
+  private previewOnly = load('tunePreviewOnly') === '1';
+  private pendingRestart = false;
   private open = false;
   private tabIdx = 0;
   private readT = 0;
@@ -168,7 +201,10 @@ export class TunePanel {
       el('button', 'tune-btn', acts, label).addEventListener('click', fn);
     };
     act('Restart', () => this.host.restart(this.host.run().seed));
-    act('New seed', () => this.host.restart(this.host.randomSeed()));
+    act('New seed', () => {
+      this.host.restart(this.host.randomSeed());
+      this.preview.request();
+    });
     act('Copy JSON', () => void this.copy());
     act(import.meta.env.DEV ? 'Save' : 'Save (copy)', () => void this.save());
 
@@ -181,10 +217,11 @@ export class TunePanel {
 
     const body = el('div', 'tune-body', d);
     body.setAttribute('data-scroll', '');
-    for (const [, secs] of TABS) {
+    for (const [name, secs] of TABS) {
       const list = el('div', 'tune-list', body);
       this.lists.push(list);
-      for (const s of this.sliders) if (secs.includes(s.section)) this.addSlider(list, s);
+      if (name === 'Hills') this.buildHills(list);
+      else for (const s of this.sliders) if (secs.includes(s.section)) this.addSlider(list, s);
     }
     this.status = el('div', 'tune-status', body);
     this.json = el('textarea', 'tune-json', body);
@@ -215,42 +252,131 @@ export class TunePanel {
     this.sync();
   }
 
+  /** Hills tab: sticky profile preview + stats, mode chips, labelled blocks. */
+  private buildHills(list: HTMLDivElement): void {
+    const pv = el('div', 'tune-preview', list);
+    const canvas = el('canvas', 'tune-canvas', pv);
+    this.preview = new HillPreview(canvas, el('div', 'tune-hstats', pv), () => this.host.run().seed);
+    const row = el('div', 'tune-row', list);
+    (['Peaks', 'Zigzag'] as const).forEach((m, i) => {
+      const b = el('button', 'tune-chip', row, m);
+      b.addEventListener('click', () => this.setMode(i));
+      this.modeChips.push(b);
+    });
+    this.previewBtn = el('button', 'tune-chip tune-pvonly', row, 'Preview only');
+    this.previewBtn.addEventListener('click', () => this.setPreviewOnly(!this.previewOnly));
+    el('button', 'tune-chip', row, 'Reset Hills').addEventListener('click', () => this.resetHills());
+    for (const g of this.groups) {
+      const box = (g.el = el('div', 'tune-group', list));
+      const head = el('div', 'tune-ghead', box);
+      el('b', '', head, g.title);
+      el('span', '', head, g.hint);
+      for (const key of g.keys) {
+        const [sec, k] = key.split('.');
+        const s = this.sliders.find((x) => x.section === sec && x.path[0] === k);
+        if (s) this.addSlider(box, s);
+      }
+    }
+  }
+
   private addSlider(list: HTMLDivElement, s: Slider): void {
     const row = (s.row = el('div', 'tune-slider', list));
     const label = el('button', 'tune-label', row, s.label);
     label.title = 'tap: reset to preset/default';
     label.addEventListener('click', () => this.resetOne(s));
+    if (s.toggle) {
+      const sw = (s.sw = el('button', 'tune-switch', row));
+      sw.addEventListener('click', () => {
+        const [o, k] = target(s);
+        o[k] = (o[k] as number) > 0 ? 0 : 1;
+        this.syncOne(s);
+        this.worldEdited();
+      });
+      return;
+    }
     const input = (s.input = el('input', '', row));
     input.type = 'range';
     input.min = String(s.min);
     input.max = String(s.max);
     input.step = String(s.step);
     s.value = el('span', 'tune-value', row);
-    const world = s.section === 'hills' || s.section === 'islands';
+    const world = isWorld(s);
     input.addEventListener('input', () => {
       const [o, k] = target(s);
       o[k] = Number(input.value);
       s.value!.textContent = fmt(o[k] as number, s.step);
-      if (!world) this.changed();
+      if (world) this.preview.request(); // live profile while dragging, no game restart
+      else this.changed();
     });
     input.addEventListener('change', () => {
-      if (world) {
-        this.host.restart(this.host.run().seed); // the world must be regenerated
-        this.changed();
-      }
+      if (world) this.worldEdited();
       input.blur();
     });
   }
 
+  /** A hills/islands value was committed: regenerate the game world (same seed) unless "Preview only". */
+  private worldEdited(): void {
+    if (this.previewOnly) this.pendingRestart = true;
+    else this.host.restart(this.host.run().seed);
+    this.preview.request();
+    this.changed();
+  }
+
+  private setMode(m: number): void {
+    if (CONFIG.hills.mode === m) return;
+    CONFIG.hills.mode = m;
+    this.syncHills();
+    this.worldEdited();
+    this.say(m ? 'Zigzag: случайное блуждание' : 'Peaks: ровные вершины, разные впадины');
+  }
+
+  private setPreviewOnly(on: boolean): void {
+    this.previewOnly = on;
+    save('tunePreviewOnly', on ? '1' : '0');
+    this.previewBtn.classList.toggle('on', on);
+    if (!on && this.pendingRestart) {
+      this.pendingRestart = false;
+      this.host.restart(this.host.run().seed);
+      this.say('применено: рестарт тем же seed');
+    } else this.say(on ? 'Preview only: игра не перезапускается' : 'изменения холмов сразу идут в игру');
+  }
+
+  private resetHills(): void {
+    const t = currentTuning();
+    t.hills = {};
+    t.islands = {};
+    applyTuning(t);
+    this.sync();
+    this.worldEdited();
+    this.say('Hills: значения по умолчанию');
+  }
+
   /** Refresh every control from CONFIG (after tuning.json reload, preset, A/B...). */
   sync(): void {
-    for (const s of this.sliders) {
-      const [o, k] = target(s);
-      const v = o[k] as number;
-      s.input!.value = String(v);
-      s.value!.textContent = fmt(v, s.step);
-    }
+    for (const s of this.sliders) this.syncOne(s);
+    this.syncHills();
     this.marks();
+  }
+
+  private syncOne(s: Slider): void {
+    const [o, k] = target(s);
+    const v = o[k] as number;
+    if (s.sw) {
+      s.sw.textContent = v > 0 ? 'вкл' : 'выкл';
+      s.sw.classList.toggle('on', v > 0);
+      return;
+    }
+    s.input!.value = String(v);
+    s.value!.textContent = fmt(v, s.step);
+  }
+
+  /** Mode chips, mode-only blocks, Preview-only state, profile. */
+  private syncHills(): void {
+    const m = CONFIG.hills.mode;
+    this.modeChips.forEach((b, i) => b.classList.toggle('on', i === m));
+    for (const g of this.groups) g.el!.classList.toggle('hidden', g.mode !== undefined && g.mode !== m);
+    this.previewBtn.classList.toggle('on', this.previewOnly);
+    this.preview.request();
   }
 
   private marks(): void {
@@ -278,12 +404,20 @@ export class TunePanel {
     this.lists.forEach((l, j) => l.classList.toggle('hidden', j !== this.tabIdx));
     this.tabBtns.forEach((b, j) => b.classList.toggle('on', j === this.tabIdx));
     save('tuneTab', String(this.tabIdx));
+    this.showPreview();
+  }
+
+  private showPreview(): void {
+    const hills = TABS[this.tabIdx][0] === 'Hills';
+    this.root.classList.toggle('hills', hills);
+    this.preview.show(this.open && hills);
   }
 
   toggle(open = !this.open): void {
     this.open = open;
     this.root.classList.toggle('open', open);
     this.tab.blur();
+    this.showPreview();
     try {
       sessionStorage.setItem('sd.tuneOpen', open ? '1' : '0');
     } catch {
@@ -320,9 +454,9 @@ export class TunePanel {
     if (!inDiff(t, s)) return;
     dropFromDiff(t, s);
     applyTuning(t);
-    if (s.section === 'hills' || s.section === 'islands') this.host.restart(this.host.run().seed);
     this.sync();
-    this.changed();
+    if (isWorld(s)) this.worldEdited();
+    else this.changed();
     this.say(`${s.label} reset`);
   }
 
