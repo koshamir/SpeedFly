@@ -119,6 +119,7 @@ input.onPress = (kind) => {
 };
 input.onKey = (code) => {
   if (tune?.key(code)) return;
+  if (code === 'KeyT' && import.meta.env.DEV) return loadTune(true);
   if (code === 'Escape' || code === 'KeyP') togglePause();
   else if (code === 'Enter') {
     if (state === 'title') startPlaying();
@@ -163,9 +164,12 @@ if (debugOn)
     debug = new Debug(root, () => run, { restart: () => (newRun(), startPlaying()) });
   });
 
-// ?tune=1: curated feel panel (dev and production builds)
+// ?tune=1: curated feel panel (dev and production builds). In dev, T opens it even without the flag.
 let tune: TunePanel | null = null;
-if (tuneOn)
+let tuneLoading = false;
+function loadTune(open: boolean): void {
+  if (tune || tuneLoading) return;
+  tuneLoading = true;
   void import('./ui/tune').then(({ TunePanel }) => {
     tune = new TunePanel(uiRoot, {
       run: () => run,
@@ -174,7 +178,10 @@ if (tuneOn)
       randomSeed,
       changed: () => debug?.refresh(),
     });
+    if (open) tune.toggle(true);
   });
+}
+if (tuneOn) loadTune(false);
 
 // dev: saving tuning.json applies it in every open tab (phone over LAN too) without a reload.
 // Physics/camera are live on the next step; a world change (hills/islands/gRelease) restarts the same seed.
