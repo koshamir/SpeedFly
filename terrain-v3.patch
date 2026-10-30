@@ -1,0 +1,199 @@
+From 6288c3e0690ecc885cbf8061c0aa5f8608c1997b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 31 Oct 2026 01:20:24 +0500
+Subject: [PATCH] =?UTF-8?q?Terrain=20v3:=20key-point=20hills=20(Tikhonov/h?=
+ =?UTF-8?q?aqu=20principle)=20=E2=80=94=20level=20peaks=20+=20varied=20val?=
+ =?UTF-8?q?leys,=20zigzag=20mode?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Replaces the hill-type rhythm. Key points alternate peak/valley with cosine interpolation.
+mode 0 'peaks' (default): peaks at ~one level (peakY +- peakJitter), each valley its own depth
+(depth +- depthJitter), occasional deep (deepChance x deepMul) or wide (wideChance x wideMul) valley,
+symmetric bowls, depth growing along the island. mode 1 'zigzag': haqu random walk (minDY/rangeDY,
+clamped). Fixed RNG draws per hill. Tune sliders updated. npm run sim/feel PASS in both modes.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_018Nkzi78RYC1zWtLhT73ngE
+---
+ src/config.ts        | 41 ++++++++++++++++++++++++-----------
+ src/ui/tune.ts       | 26 +++++++++++++++-------
+ src/world/islands.ts | 51 ++++++++++++++++++++++----------------------
+ 3 files changed, 72 insertions(+), 46 deletions(-)
+
+diff --git a/src/config.ts b/src/config.ts
+index 9605c5c..ce9552a 100644
+--- a/src/config.ts
++++ b/src/config.ts
+@@ -99,21 +99,36 @@ export const CONFIG = {
+     paletteCount: 6,
+   },
+ 
+-  // Hill rhythm (island mode): a hill = one symmetric cosine wave (valley -> peak -> valley) of a TYPE.
+-  // Few types, small jitter, slow growth along the island = predictable, learnable rhythm.
++  // Hills (island mode). Key points alternate PEAK / VALLEY; cosine interpolation between them
++  // (Tikhonov / haqu tiny-wings principle). Two generators:
++  //  mode 0 'peaks' (default, Tiny Wings look): peaks sit at ~one level, every valley has its own
++  //         depth; now and then a valley is deep (bigger pump) or wide (longer, softer slopes).
++  //  mode 1 'zigzag' (haqu/Tikhonov original): each key point = previous +- (minDY..minDY+rangeDY),
++  //         clamped to [zzMinY, zzMaxY] -> peaks drift up and down (random walk).
++  // halfW = horizontal distance peak -> valley; depth = peak -> valley drop. Per-island scale:
++  // islands.sxStep/sxMax (halfW), islands.syStep/syMax (depth / dy).
+   hills: {
+-    types: [
+-      { name: 'normal', w: 760, h: 170, weight: 0.6 }, // w = valley-to-valley width, h = peak height
+-      { name: 'deep', w: 760, h: 240, weight: 0.25 }, // bigger pump
+-      { name: 'wide', w: 1100, h: 230, weight: 0.15 }, // long launch
+-    ],
+-    noRepeat: ['deep', 'wide'], // never twice in a row
+-    jitter: 0.04, // +-4% on w and h
+-    growFrom: 0.85, // h multiplier along the island: first hill -> last hill
++    mode: 0, // 0 peaks, 1 zigzag
++    halfW: 380, // peak -> valley distance (a whole hill = 2 * halfW)
++    halfWJitter: 0.08, // +-8%
++    symmetric: 1, // 1: both slopes of a valley share one width (a symmetric bowl); 0: each slope rolls its own
++    peakY: 200, // peak level (the nest is at 200)
++    peakJitter: 12, // +- px per peak
++    depth: 170, // peak -> valley drop
++    depthJitter: 0.15, // +-15%
++    deepChance: 0.2, // share of valleys that are deep
++    deepMul: 1.45, // depth multiplier of a deep valley
++    wideChance: 0.15, // share of valleys that are wide
++    wideMul: 1.35, // halfW multiplier of a wide valley
++    noRepeat: 1, // 1: a deep/wide valley is never followed by another special one
++    growFrom: 0.85, // depth multiplier along the island: first valley -> last valley
+     growTo: 1.12,
+-    baseY: 0, // valley height
+-    baseJitter: 10,
+-    maxSlope: 1.1, // max |h'| of a wave = pi h / w (w is widened to respect it)
++    maxSlope: 1.1, // max |h'| (a slope's width is widened to respect it)
++    // zigzag mode (haqu: minDY 60, rangeDY 60 on a 320 px tall screen, clamp [20, 320]; x1.5 for our 720 px width)
++    zzMinDY: 90,
++    zzRangeDY: 90,
++    zzMinY: -60,
++    zzMaxY: 330,
+   },
+ 
+   coins: {
+diff --git a/src/ui/tune.ts b/src/ui/tune.ts
+index 3ab75fa..156b807 100644
+--- a/src/ui/tune.ts
++++ b/src/ui/tune.ts
+@@ -57,17 +57,27 @@ function sliders(): Slider[] {
+     S('physics', 'landingAssist', 0, 0.8, 0.01),
+     S('physics', 'takeoffMargin', 0, 0.3, 0.01),
+   ];
+-  for (const ty of CONFIG.hills.types) {
+-    out.push(
+-      { section: 'hills', path: ['types', ty.name, 'w'], label: `${ty.name}.w`, min: 400, max: 1600, step: 10 },
+-      { section: 'hills', path: ['types', ty.name, 'h'], label: `${ty.name}.h`, min: 60, max: 400, step: 5 },
+-      { section: 'hills', path: ['types', ty.name, 'weight'], label: `${ty.name}.wt`, min: 0, max: 1, step: 0.01 },
+-    );
+-  }
+   out.push(
+-    S('hills', 'jitter', 0, 0.15, 0.005),
++    S('hills', 'mode', 0, 1, 1, 'mode 0 peaks / 1 zigzag'),
++    S('hills', 'halfW', 200, 800, 5),
++    S('hills', 'halfWJitter', 0, 0.3, 0.005),
++    S('hills', 'symmetric', 0, 1, 1),
++    S('hills', 'peakY', 0, 400, 5),
++    S('hills', 'peakJitter', 0, 80, 1),
++    S('hills', 'depth', 60, 400, 5),
++    S('hills', 'depthJitter', 0, 0.5, 0.01),
++    S('hills', 'deepChance', 0, 0.6, 0.01),
++    S('hills', 'deepMul', 1, 2.2, 0.01),
++    S('hills', 'wideChance', 0, 0.6, 0.01),
++    S('hills', 'wideMul', 1, 2, 0.01),
++    S('hills', 'noRepeat', 0, 1, 1),
+     S('hills', 'growFrom', 0.5, 1.5, 0.01),
+     S('hills', 'growTo', 0.5, 1.5, 0.01),
++    S('hills', 'maxSlope', 0.5, 1.6, 0.01),
++    S('hills', 'zzMinDY', 20, 300, 5),
++    S('hills', 'zzRangeDY', 0, 300, 5),
++    S('hills', 'zzMinY', -300, 200, 5),
++    S('hills', 'zzMaxY', 100, 600, 5),
+     S('islands', 'sxStep', 0, 0.15, 0.005, 'isl.sxStep'),
+     S('islands', 'sxMax', 1, 2, 0.01, 'isl.sxMax'),
+     S('islands', 'syStep', 0, 0.15, 0.005, 'isl.syStep'),
+diff --git a/src/world/islands.ts b/src/world/islands.ts
+index faffa00..f63237a 100644
+--- a/src/world/islands.ts
++++ b/src/world/islands.ts
+@@ -62,7 +62,7 @@ export class IslandGen implements TerrainGen {
+   private sy = 1;
+   private totalHills = 0;
+   private arcId = 0;
+-  private lastType = '';
++  private lastSpecial = false;
+   private island!: Island;
+ 
+   constructor(
+@@ -101,39 +101,40 @@ export class IslandGen implements TerrainGen {
+     else this.addEnd(t);
+   }
+ 
+-  /** One hill of the rhythm: a symmetric cosine wave of a type (CONFIG.hills), valley -> peak. */
++  /** One hill = a valley then the next peak (key points), cosine-interpolated by the terrain. */
+   private addHill(t: Terrain): void {
+     const Hc = CONFIG.hills, I = CONFIG.islands, r = this.r;
+     const px = t.lastX, py = t.lastY;
+     const onboard = this.k === 1 && this.hill < I.onboardHills;
+-    let ty = Hc.types[0];
+-    let wsum = 0;
+-    for (const c of Hc.types) wsum += c.weight;
+-    const z = r() * wsum; // always drawn: the stream stays aligned whatever the branch; weights need not sum to 1
+-    if (!onboard) {
+-      let acc = 0;
+-      for (const c of Hc.types) {
+-        acc += c.weight;
+-        if (z <= acc) {
+-          ty = c;
+-          break;
+-        }
+-      }
+-      if (ty.name === this.lastType && Hc.noRepeat.includes(ty.name)) ty = Hc.types[0];
+-    }
+-    this.lastType = ty.name;
++    // fixed number of draws per hill: the stream stays aligned whatever the branches/mode
++    const rDeep = r(), rWide = r(), rW1 = r(), rW2 = r(), rD = r(), rP = r();
++    const prevSpecial = this.lastSpecial && Hc.noRepeat > 0;
++    const deep = !onboard && !prevSpecial && rDeep < Hc.deepChance;
++    const wide = !onboard && !prevSpecial && !deep && rWide < Hc.wideChance;
++    this.lastSpecial = deep || wide;
+     const prog = this.hills > 1 ? this.hill / (this.hills - 1) : 0;
+     const grow = Hc.growFrom + (Hc.growTo - Hc.growFrom) * prog;
+-    let w = ty.w * this.sx * (1 + Hc.jitter * (2 * r() - 1));
+-    const h = ty.h * this.sy * grow * (onboard ? I.onboardH : 1) * (1 + Hc.jitter * (2 * r() - 1));
+-    w = Math.max(w, (Math.PI * h) / Hc.maxSlope); // max slope of a cosine wave = pi h / w
+-    const vy = Hc.baseY + Hc.baseJitter * (2 * r() - 1);
+-    // valley (joins from the previous peak / start) then the peak half a wave later
+-    const vx = px + widen(w / 2, py, vy);
++    const jit = (z: number, a: number): number => 1 + a * (2 * z - 1);
++    const hw = Hc.halfW * this.sx * (wide ? Hc.wideMul : 1);
++    const w1 = hw * jit(rW1, Hc.halfWJitter);
++    const w2 = Hc.symmetric > 0 ? w1 : hw * jit(rW2, Hc.halfWJitter);
++    let vy: number, ny: number;
++    if (Hc.mode === 1) {
++      // zigzag (haqu): down by dy from the previous point, then up by an independent dy; clamped
++      const dyS = this.sy * grow * (onboard ? I.onboardH : 1);
++      vy = Math.max(Hc.zzMinY, py - (Hc.zzMinDY + rD * Hc.zzRangeDY) * dyS);
++      ny = Math.min(Hc.zzMaxY, vy + (Hc.zzMinDY + rP * Hc.zzRangeDY) * dyS);
++    } else {
++      // peaks: level peaks, each valley its own depth below them
++      const depth = Hc.depth * this.sy * grow * (deep ? Hc.deepMul : 1) * (onboard ? I.onboardH : 1) * jit(rD, Hc.depthJitter);
++      ny = Hc.peakY + Hc.peakJitter * (2 * rP - 1);
++      vy = Math.min(py, ny) - depth;
++    }
++    const vx = px + widen(w1, py, vy);
+     t.push(vx, vy);
+     this.downslopeCoins(px, py, vx, vy);
+     this.blueCoin(vx, vy);
+-    t.push(vx + w / 2, vy + h);
++    t.push(vx + widen(w2, vy, ny), ny);
+     this.hill++;
+     this.totalHills++;
+   }
+-- 
+2.43.0
+
