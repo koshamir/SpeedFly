@@ -1,6 +1,16 @@
 {
   "preset": "smooth",
-  "physics": {},
+  "physics": {
+    "gRelease": 940,
+    "gDive": 3350,
+    "drag": 0.000039,
+    "muGround": 0.015,
+    "greatAngle": 12.5,
+    "landingAssist": 0.5,
+    "diveRamp": 0.03,
+    "airLift": 0.13,
+    "takeoffMargin": 0.02
+  },
   "hills": {},
   "camera": {},
   "islands": {}
