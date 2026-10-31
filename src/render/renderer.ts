@@ -48,6 +48,11 @@ export class Renderer {
   private readonly water = new Water();
   private readonly coins = new CoinsView();
   private readonly bird: BirdView;
+  private rivals: { view: BirdView; run: Run; cur: TerrainCursor }[] = [];
+  /** Race: the Sunset Chase night front x (else the run's own night; -Infinity hides it). */
+  nightX: number | null = null;
+  /** Race: daylight for the sky (else the run's). */
+  dayOverride: number | null = null;
   private readonly night = new NightFront();
   readonly fx: Fx;
   private lines: DebugLines | null = null;
@@ -92,6 +97,18 @@ export class Renderer {
       this.scene.add(this.lines.group);
     }
     this.snap = true;
+  }
+
+  /** Race rivals (drawn under the player's bird; [] = none). */
+  setRivals(list: { run: Run; bus: GameBus; scarf: string }[]): void {
+    for (const r of this.rivals) this.scene.remove(r.view.mesh);
+    this.rivals = list.map((x, i) => {
+      const view = new BirdView(x.bus);
+      view.setLook(x.scarf, 5 - i * 0.2);
+      view.reset(x.run);
+      this.scene.add(view.mesh);
+      return { view, run: x.run, cur: x.run.world.terrain.cursor() };
+    });
   }
 
   /** Dark band + rim of the island palette under x; over the sea they crossfade to the next island's. */
@@ -188,7 +205,8 @@ export class Renderer {
     const x0 = r.cx - r.viewW / 2, x1 = r.cx + r.viewW / 2;
     const pxPerWorld = (L.gw * L.dpr) / r.viewW;
     // the sky follows the daylight smoothly (a push brightens it over ~0.5 s instead of a cut)
-    this.dayShown = this.snapDay ? run.daylight : this.dayShown + (run.daylight - this.dayShown) * Math.min(1, dt * CONFIG.juice.dialEase);
+    const dayT = this.dayOverride ?? run.daylight;
+    this.dayShown = this.snapDay ? dayT : this.dayShown + (dayT - this.dayShown) * Math.min(1, dt * CONFIG.juice.dialEase);
     this.snapDay = false;
     const s = skyAt(this.dayShown, this.skyState);
     const margin = CONFIG.render.meshStep * 4;
@@ -199,8 +217,13 @@ export class Renderer {
     this.water.update(run.world, x0, x1, this.time, pxPerWorld, s.grade, s.horizon);
     this.coins.update(run.world, x0 - margin, x1 + margin, this.time, s.grade, run.sky);
     this.bird.update(dt, run, cx, cy, d1, r.birdScale, asleep, s.grade);
+    for (const o of this.rivals) {
+      const q = o.run, ox = q.pcx + (q.cx - q.pcx) * alpha, oy = q.pcy + (q.cy - q.pcy) * alpha;
+      o.cur.sample(q.bird.grounded ? q.bird.u : q.bird.x);
+      o.view.update(dt, q, ox, oy, o.cur.d1, r.birdScale * CONFIG.race.rivalScale, asleep || q.over, s.grade);
+    }
     this.fx.update(live || asleep ? dt : 0, cx, cy, r.birdScale, x0, r.cy - r.viewH / 2, r.z, L.logW, L.logH, s.grade, live, r.cine, r.descent);
-    this.night.update(x0, x1, run.night.x, L.gw / L.gh, r.cine * CONFIG.fx.glare * (1 - s.night), CONFIG.render.sunX, s.sunY, s.sun, this.time);
+    this.night.update(x0, x1, this.nightX ?? run.night.x, L.gw / L.gh, r.cine * CONFIG.fx.glare * (1 - s.night), CONFIG.render.sunX, s.sunY, s.sun, this.time);
     // Fever: pulsing hue-cycling screen tint (edges weighted)
     const J = CONFIG.juice, tint = this.night.tint;
     this.feverK += ((run.fever && live ? 1 : 0) - this.feverK) * (1 - Math.exp(-dt * 4));

@@ -414,7 +414,7 @@ export class BirdView {
   // current body transform (shared by the part() calls of one frame)
   private readonly xf = { ox: 0, oy: 0, ca: 1, sa: 0, rs: 1, sx: 1, sy: 1, size: 1, lr: 1, lg: 1, lb: 1, ang: 0 };
   private tumbleT = 0; // island-jump back-flip (cosmetic), counts down
-  private readonly cScarf: RGB = hexRgb(C.scarf);
+  private cScarf: RGB = hexRgb(C.scarf);
   private readonly cOut: RGB = hexRgb(CONFIG.colors.outline);
 
   constructor(bus: GameBus) {
@@ -461,6 +461,13 @@ export class BirdView {
       if (e.speed >= CONFIG.islands.vLaunchMax * CONFIG.juice.tumbleSpeed) this.tumbleT = CONFIG.juice.tumbleTime;
     });
     bus.on('islandLand', () => (this.happyT = CONFIG.bird.happyTime));
+  }
+
+  /** Race rival look: own scarf colour, drawn under the player's bird. */
+  setLook(scarf: string, order: number): void {
+    this.cScarf = hexRgb(scarf);
+    this.batch.mesh.renderOrder = order;
+    this.scarf.renderOrder = order - 0.1;
   }
 
   /** A small squash kick (visual bumps on the mountain descent). */

@@ -20,6 +20,13 @@ export class Bot {
   private pAng = 0;
   private pV = 0;
 
+  /** Personality (race rivals): chance per flight to pick a neighbouring plan; planner speed weight. */
+  mistake = 0;
+  speedWeight = CONFIG.bot.speedWeight;
+  private rng: (() => number) | null = null;
+  private wasGrounded = true;
+  private shift = 0;
+
   constructor(
     private readonly terrain: Terrain,
     readonly policy: BotPolicy,
@@ -27,6 +34,11 @@ export class Bot {
   ) {
     this.cur = terrain.cursor();
     this.q = new Uint8Array(delay + 1);
+  }
+
+  /** Seeded randomness for mistakes (deterministic races). */
+  setRng(rng: () => number): void {
+    this.rng = rng;
   }
 
   /** Call once per fixed step, before stepping the bird. */
@@ -65,18 +77,29 @@ export class Bot {
 
   private planner(b: Bird, d1: number): boolean {
     const B = CONFIG.bot;
-    if (b.grounded) return d1 < B.groundSlope; // ground: hold on downhill, release on uphill
-    let best = 1e9, bestScore = -1e18;
+    if (b.grounded) {
+      this.wasGrounded = true;
+      return d1 < B.groundSlope; // ground: hold on downhill, release on uphill
+    }
+    if (this.wasGrounded) {
+      // a new flight: maybe this one gets a misjudged release (one plan off)
+      this.wasGrounded = false;
+      const r = this.rng;
+      this.shift = r && r() < this.mistake ? (r() < 0.5 ? -1 : 1) : 0;
+    }
+    let best = 1e9, bestScore = -1e18, bestI = 0;
     const plans = B.plans;
     for (let i = 0; i < plans.length; i++) {
       const r = plans[i];
       this.predict(b, r);
-      const score = this.pKind === 'great' ? B.greatScore + this.pV : -this.pAng * B.angPenalty + this.pV * B.speedWeight;
+      const score = this.pKind === 'great' ? B.greatScore + this.pV : -this.pAng * B.angPenalty + this.pV * this.speedWeight;
       if (score > bestScore) {
         bestScore = score;
         best = r;
+        bestI = i;
       }
     }
+    if (this.shift) best = plans[Math.max(0, Math.min(plans.length - 1, bestI + this.shift))];
     return best === 0;
   }
 
@@ -144,7 +167,7 @@ export function runBot(policy: BotPolicy, seed = 7, T = 240, delay = 0): BotResu
     k++;
     if (k % CONFIG.bot.sampleEvery === 0) speeds[ns++] = speedOf(b);
     if (k % CONFIG.terrain.updateEvery === 0) world.update(b.x); // exercise streaming + trimming
-    const xn = -Nt.startGap + Nt.v0 * t + 0.5 * Nt.accel * t * t;
+    const xn = -Nt.refStartGap + Nt.refV0 * t + 0.5 * Nt.accel * t * t;
     if (caught === null && xn >= b.x) caught = t;
   }
   const sp = speeds.subarray(0, ns).sort();

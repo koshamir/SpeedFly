@@ -1,4 +1,4 @@
-import { CONFIG } from '../config';
+import { CONFIG, type TrackDef, type TrackSection } from '../config';
 import { mulberry32, type Rng } from '../core/rng';
 import { COIN_BLUE, COIN_GOLD, type Coins } from './collectibles';
 import { segCross, segEval, segMaxSlope, type Terrain, type TerrainGen } from './terrain';
@@ -76,11 +76,17 @@ export class IslandGen implements TerrainGen {
   private arcId = 0;
   private lastSpecial = false;
   private island!: Island;
+  /** Race track: the hill layout comes from the script, not the RNG (looks still use rc). */
+  private secs: TrackSection[] = [];
+  private secTotal = 0;
+  /** x of the finish line (race track only; Infinity until generated). */
+  finishX = Infinity;
 
   constructor(
     seed: number,
     private readonly islands: Island[],
     private readonly coins: Coins,
+    private readonly track: TrackDef | null = null,
   ) {
     this.r = mulberry32(seed);
     this.rc = mulberry32(seed ^ 0x2545f491);
@@ -98,6 +104,17 @@ export class IslandGen implements TerrainGen {
     this.sx = s.sx * st.w;
     this.sy = s.sy * st.h;
     this.sharp = st.sharp;
+    const T = this.track;
+    if (T) {
+      const def = T.islands[Math.min(this.k, T.islands.length) - 1];
+      const R = CONFIG.race;
+      this.secs = this.k > T.islands.length ? [R.runout] : def.sections.map((x) => ({ ...x, n: Math.max(1, Math.round(x.n * R.lengthMul)) }));
+      this.secTotal = this.secs.reduce((a, x) => a + x.n, 0);
+      const last = this.k >= T.islands.length || !def.jump;
+      if (last) this.secs.push(R.runout); // the finish stands after secTotal hills; run-out follows
+      this.hills = last ? Infinity : this.secTotal;
+      this.sx = this.sy = 1;
+    }
     this.hill = 0;
     this.island = {
       k: this.k, x0, x1: Infinity, lipX: Infinity, wx0: Infinity, wx1: Infinity, landingX: Infinity,
@@ -114,6 +131,12 @@ export class IslandGen implements TerrainGen {
   }
 
   extend(t: Terrain): void {
+    if (this.track) {
+      if (this.hill === this.secTotal && this.hills === Infinity && this.finishX === Infinity) this.finishX = t.lastX;
+      if (this.hill < this.hills) this.trackHill(t);
+      else this.addEnd(t);
+      return;
+    }
     if (this.hill < this.hills) this.addHill(t);
     else this.addEnd(t);
   }
@@ -156,6 +179,32 @@ export class IslandGen implements TerrainGen {
     this.downslopeCoins(px, py, vx, vy, q);
     this.blueCoin(vx, vy);
     t.push(vx + half, ny, q);
+    this.hill++;
+    this.totalHills++;
+  }
+
+  /** A scripted race hill: same shape rules as addHill, no randomness. */
+  private trackHill(t: Terrain): void {
+    const Hc = CONFIG.hills;
+    let i = this.hill, sec = this.secs[this.secs.length - 1];
+    for (const x of this.secs) {
+      if (i < x.n) {
+        sec = x;
+        break;
+      }
+      i -= x.n;
+    }
+    const q = sec.q ?? 1, px = t.lastX, py = t.lastY;
+    if (this.hill === 0) this.island.hillK0 = t.base + t.n;
+    const half = (Hc.width * sec.w) / 2;
+    const ny = Hc.peakY + (sec.peak ?? 0);
+    let vy = Math.min(py, ny) - Hc.height * sec.h;
+    const maxDrop = (Hc.slopeLimit * half) / segMaxSlope(1, 1, q);
+    if (Math.max(py, ny) - vy > maxDrop) vy = Math.max(py, ny) - maxDrop;
+    const vx = px + half;
+    t.push(vx, vy, q);
+    t.push(vx + half, ny, q);
+    if (sec.rings) this.coins.push(vx, Hc.peakY + CONFIG.race.ringLift, COIN_BLUE, this.arcId++);
     this.hill++;
     this.totalHills++;
   }

@@ -364,3 +364,33 @@ jitter or micro-hops; 3 GREATs in a row achievable on island 1 within the first 
 ## 13. Do not
 Meta-progression (TW nests/objectives), shops, ad placeholders, physics engines, external CDNs,
 React, EffectComposer, physics changes outside config, any Tiny Wings assets/names.
+
+## 14. Race mode
+Title → RACE → pick 1 of 3 tracks. The player races 4 AI birds to a finish line; the endless run stays the
+main mode. The day/night rules (§5) are off in races, except where a track feature uses the night.
+- **Tracks** (`CONFIG.race.tracks`, generator `IslandGen` with a script): fixed layouts, no randomness. A
+  track is a list of islands, and each island is a list of sections of identical hills (`w` width,
+  `h` valley depth, `q` sharpness, `rings`). Every island except the last ends with the mountain and the
+  scripted jump; the finish stands on the peak after the last section, and gentle run-out hills follow.
+  Section types: rhythm (perfect pumping chain), deep valleys (pay off only with timing), wide valleys
+  (a high flight skips the slow climb), kickers (sharp lips: fast and high, or a BAD landing). Length knob:
+  `race.lengthMul`; target 2–3 min for a good player.
+- **Features** (each one reinforces flying fast and high, never replaces it):
+  1. *Ring Road*: boost rings (blue boost coins) hang `ringLift` above the peaks over chosen valleys. Only
+     a real flight reaches them.
+  2. *Slipstream Ridge*: a bird within 320 px behind another (|dy| < 160) has 65% less air drag and
+     +260 px/s on its soft speed limit. No push: it just loses less speed. "SLIPSTREAM!" shows in the HUD.
+  3. *Sunset Chase*: a night front starts 2200 px behind and moves at 520 + 4.2·t px/s. Any bird it reaches
+     is out (the player too: race lost). The sky darkens as it closes in.
+- **AI birds**: same physics and the same planner bot. Personality: `delay` (reaction), `mistake` (chance
+  per flight to pick a neighbouring release plan; seeded, so deterministic) and `speedWeight` (aggression).
+  Rivals are Zippy (teal), Mango (orange), Pip (pink) and Boris (violet). They are drawn smaller and under
+  the player, and birds never collide.
+- **Dynamic difficulty**: a rival more than 2500 px behind (ahead of) the player gets up to 12% less (more)
+  drag, ±120 px/s on vSoft, and fewer (more) mistakes, eased over 3 s. Small, never a teleport.
+- **UX**: 3-2-1-GO countdown (the sim waits) · place "2nd / 5" · race timer · progress bar with every bird ·
+  off-screen name tags with the gap in m · checkered FINISH pole in the world · a big "WINNER!" moment ·
+  results: standings with times (* = estimated: not finished `finishWait` s after the player), medal
+  (gold/silver/bronze times per track), best time per track (localStorage), "Race again!" and "Tracks".
+- **Verification**: `npm run race` races naive / p100 / p50 / pro bots on every track. Pro must win
+  every track and naive must lose. Medal times and `lengthMul` are tuned from this table.

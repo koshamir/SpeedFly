@@ -12,7 +12,9 @@ import { loadRecords, submitRecords } from './core/records';
 import { Quality } from './render/quality';
 import { Renderer } from './render/renderer';
 import { Bot, type BotPolicy } from './sim/bot';
+import { Race } from './sim/race';
 import { Run } from './sim/run';
+import { RaceUi, submitTime } from './ui/race';
 import { el, Hud } from './ui/hud';
 import { Popups, type PopupKind } from './ui/popups';
 import { applyTuning, parseTuning, worldKey } from './tuning';
@@ -26,7 +28,7 @@ import type { TerrainMode } from './world/world';
 applyTuning(parseTuning(tuningFile));
 
 // Bootstrap, resize and the state machine: Title -> Playing <-> Paused -> Caught -> Results -> Playing.
-type State = 'title' | 'playing' | 'paused' | 'caught' | 'results';
+type State = 'title' | 'playing' | 'paused' | 'caught' | 'results' | 'raceMenu' | 'raceResults';
 
 const params = new URLSearchParams(location.search);
 const debugOn = params.get('debug') === '1';
@@ -90,6 +92,12 @@ el('span', 'best-flag-label', flagEl, 'BEST');
 let flagCur = run.world.terrain.cursor();
 let recordPassed = false;
 const flagPt = { x: 0, y: 0 };
+// ---------- race mode (SPEC §14) ----------
+let race: Race | null = null;
+const raceUi = new RaceUi(uiRoot);
+const raceBtn = el('button', 'btn btn-race', screens.title, 'RACE');
+raceBtn.setAttribute('data-ui', '');
+let raceCount = '';
 let state: State = 'title';
 let stateT = 0;
 let stepsThisFrame = 0;
@@ -101,9 +109,21 @@ function setState(s: State): void {
   audio.setRunning(s !== 'paused' && !document.hidden);
   if (s === 'title') audio.setMood('title');
   else if (s === 'playing') audio.setMood('play');
-  else if (s === 'results') audio.setMood('results');
+  else if (s === 'results' || s === 'raceResults') audio.setMood('results');
+  else if (s === 'raceMenu') audio.setMood('title');
+  raceUi.menu.classList.toggle('visible', s === 'raceMenu');
+  raceUi.results.classList.toggle('visible', s === 'raceResults');
+  raceUi.show(race !== null && (s === 'playing' || s === 'paused'));
+  if (s === 'raceResults' && race) {
+    const me = race.player, ok = me.finishT !== null && !me.out;
+    const newBest = ok && submitTime(race.trackIndex, me.finishT!);
+    const medal = raceUi.fillResults(race, newBest);
+    raceUi.fillCard(race.trackIndex);
+    audio.results(newBest || medal === 'gold');
+  }
   loop.simulate = s === 'playing';
   hud.show(s === 'playing' || s === 'paused' || s === 'caught');
+  hud.root.classList.toggle('race', race !== null);
   if (s === 'caught') screens.zzz.classList.add('visible');
   if (s === 'caught') popups.showBanner('GOOD NIGHT', `${Math.floor(run.score.meters)} m · island ${run.island}`);
   screens.showOnly(s === 'title' ? screens.title : s === 'paused' ? screens.pause : s === 'results' ? screens.results : null);
@@ -128,6 +148,10 @@ function newRun(seed = newSeed()): void {
   jump.on = false;
   jump.banner = 0;
   jump.t0 = jump.tLand = -1;
+  race = null;
+  renderer.setRivals([]);
+  renderer.nightX = renderer.dayOverride = null;
+  raceUi.show(false);
   run = new Run(seed, mode, bus);
   bot = botPolicy ? new Bot(run.world.terrain, botPolicy, botDelay) : null;
   renderer.setRun(run);
@@ -135,6 +159,37 @@ function newRun(seed = newSeed()): void {
   flagCur = run.world.terrain.cursor();
   recordPassed = false;
   popups.clear();
+}
+
+/** Race on track i: countdown -> race -> results. The player's Run is race.player.run. */
+function startRace(i: number): void {
+  newRun();
+  jump.banner = 1; // no ISLAND 1 banner over the countdown
+  race = new Race(i, bus, botPolicy ? { policy: botPolicy, delay: botDelay } : null);
+  run = race.player.run;
+  bot = null; // the race steps the player's autopilot itself
+  renderer.setRun(run);
+  renderer.setRivals(race.racers.filter((r) => !r.isPlayer).map((r) => ({ run: r.run, bus: r.bus, scarf: r.scarf })));
+  teachCur = run.world.terrain.cursor();
+  flagCur = run.world.terrain.cursor();
+  raceUi.setup(race);
+  raceCount = '';
+  race.onFinish = (r, place) => {
+    if (!r.isPlayer) return;
+    raceUi.bigText(place === 1 ? 'WINNER!' : `${['1st', '2nd', '3rd', '4th', '5th'][place - 1]}!`, 'win');
+    flash(place === 1 ? 0.6 : 0.35, '#FFE14D');
+    renderer.rig.shake(CONFIG.camera.shakeIsland);
+    if (place === 1) audio.record();
+    else audio.results(false);
+  };
+  race.onOut = (r) => {
+    if (r.isPlayer) {
+      popups.showBanner('CAUGHT!', 'the night got you');
+      audio.nightWarn();
+    } else popups.showBanner(`${r.name} is out!`, 'the night caught them');
+  };
+  popups.showBanner(race.track.name, race.track.blurb);
+  setState('playing');
 }
 
 function startPlaying(): void {
@@ -166,6 +221,7 @@ function togglePause(): void {
 input.onPress = (kind) => {
   if (state === 'title' && !rotated) startPlaying();
   else if (state === 'results' && kind === 'key') retry();
+  else if (state === 'raceResults' && kind === 'key' && race && stateT >= CONFIG.ui.retryLock) startRace(race.trackIndex);
 };
 input.onKey = (code) => {
   if (tune?.key(code)) return;
@@ -179,8 +235,29 @@ input.onKey = (code) => {
 hud.pause.addEventListener('click', () => state === 'playing' && setState('paused'));
 screens.resume.addEventListener('click', togglePause);
 screens.restart.addEventListener('click', () => {
+  if (race) return startRace(race.trackIndex);
   newRun();
   startPlaying();
+});
+raceBtn.addEventListener('click', () => {
+  audio.click();
+  setState('raceMenu');
+});
+raceUi.back.addEventListener('click', () => {
+  audio.click();
+  setState('title');
+});
+raceUi.cards.forEach((c, i) =>
+  c.addEventListener('click', () => {
+    audio.click();
+    startRace(i);
+  }),
+);
+raceUi.again.addEventListener('click', () => race && stateT >= CONFIG.ui.retryLock && startRace(race.trackIndex));
+raceUi.toMenu.addEventListener('click', () => {
+  audio.click();
+  newRun();
+  setState('raceMenu');
 });
 screens.retry.addEventListener('click', retry);
 screens.fullscreen.addEventListener('click', () => {
@@ -293,8 +370,8 @@ bus.on('land', (e) => {
 
 // ---------- loop ----------
 function step(): void {
-  const held = bot ? bot.tick(run.bird) : input.held;
-  run.step(held);
+  if (race) race.step(input.held);
+  else run.step(bot ? bot.tick(run.bird) : input.held);
   stepsThisFrame++;
 }
 
@@ -355,7 +432,8 @@ function frame(dt: number, alpha: number): void {
   if (bot && state === 'title' && stateT >= CONFIG.bot.autoStart) startPlaying();
   if (bot && state === 'results' && stateT >= CONFIG.bot.autoRetry) retry();
 
-  const asleep = state === 'title' || state === 'caught' || state === 'results';
+  const asleep = state === 'title' || state === 'caught' || state === 'results' || state === 'raceMenu';
+  if (race) raceFrame(race);
   if (state === 'playing' && stateT > 1 && quality.update(dt)) {
     renderer.setQuality(quality.dpr, quality.particles, quality.grain);
     resize();
@@ -380,10 +458,26 @@ function frame(dt: number, alpha: number): void {
   stepsThisFrame = 0;
 }
 
+/** Race per frame: countdown sounds, Sunset Chase sky + front, HUD, end of the race. */
+function raceFrame(r: Race): void {
+  const c = r.phase === 'countdown' ? String(Math.ceil(r.countdown)) : 'GO';
+  if (c !== raceCount && state === 'playing') {
+    raceCount = c;
+    if (c === 'GO') audio.go();
+    else audio.click();
+  }
+  const night = r.track.feature === 'night';
+  renderer.nightX = night ? r.nightX : -Infinity;
+  renderer.dayOverride = night ? Math.max(0, Math.min(1, (r.player.run.bird.x - r.nightX) / CONFIG.race.nightGap / 2)) : 1;
+  const L = renderer.layout;
+  raceUi.update(r, (x, y, o) => renderer.toScreen(x, y, o), L.gw, L.gh, flagCur.height(r.finishX));
+  if (r.phase === 'done' && state === 'playing') setState('raceResults');
+}
+
 /** BEST flag on the terrain at the record distance; passing it = NEW RECORD! */
 function updateFlag(): void {
   const bestPx = records.distM * CONFIG.speed.pxPerMeter;
-  const on = state === 'playing' && records.distM >= CONFIG.score.recordAt && !recordPassed;
+  const on = state === 'playing' && !race && records.distM >= CONFIG.score.recordAt && !recordPassed;
   if (on && run.score.distPx >= bestPx) {
     recordPassed = true;
     popups.showBanner('NEW RECORD!', `past ${Math.floor(records.distM)} m — keep going!`);

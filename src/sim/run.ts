@@ -67,12 +67,22 @@ export class Run {
   /** The night is within CONFIG.night.dangerAt (hysteresis dangerOff). */
   nightNear = false;
 
+  /** Physics constants this bird steps with (race: a per-bird copy for slipstream / difficulty). */
+  phys: typeof CONFIG.physics = CONFIG.physics;
+  /** Race rival: shares the world, never picks the world's coins, never streams terrain. */
+  readonly ghost: boolean;
+  /** The endless-run night (off in races). */
+  readonly nightOn: boolean;
+
   constructor(
     readonly seed: number,
     mode: TerrainMode,
     private readonly bus: GameBus,
+    opts: { world?: World; ghost?: boolean; night?: boolean } = {},
   ) {
-    this.world = new World(seed, mode);
+    this.world = opts.world ?? new World(seed, mode);
+    this.ghost = opts.ghost ?? false;
+    this.nightOn = opts.night ?? true;
     this.night = new Night(mode === 'reference');
     this.cur = this.world.terrain.cursor();
     const startX = mode === 'reference' ? CONFIG.terrain.refStartX : 0;
@@ -89,12 +99,13 @@ export class Run {
   }
 
   get daylight(): number {
+    if (!this.nightOn) return 1;
     return this.night.daylight(this.bird.x);
   }
 
   step(held: boolean): void {
     if (!this.started || this.over) return;
-    const b = this.bird, P = CONFIG.physics;
+    const b = this.bird, P = this.phys;
     this.held = held;
     this.pcx = this.cx;
     this.pcy = this.cy;
@@ -117,10 +128,10 @@ export class Run {
     }
 
     if (!b.grounded && !this.skyTouched && this.cy > CONFIG.sky.cloudY) this.onSkyTouch();
-    this.pickCoins();
+    if (!this.ghost) this.pickCoins();
     this.checkIsland();
     this.updateSpeed();
-    if (this.steps % CONFIG.terrain.updateEvery === 0) this.world.update(b.x);
+    if (!this.ghost && this.steps % CONFIG.terrain.updateEvery === 0) this.world.update(b.x);
 
     // the island-end sequence (summit -> landing) is safe: the night waits
     const L = this.world.islands;
@@ -128,6 +139,7 @@ export class Run {
     const sq = L[this.seqIdx];
     this.inSequence = b.x >= sq.summitX - CONFIG.islands.safeBefore && b.x < sq.targetX;
     if (this.inSequence) this.nightPaused += P.dt;
+    if (!this.nightOn) return;
     this.night.advance(this.inSequence ? 0 : P.dt, b.x, P.dt);
     const day = this.night.daylight(b.x), N = CONFIG.night;
     if (this.nightNear ? day > N.dangerOff : day < N.dangerAt) {
@@ -145,7 +157,7 @@ export class Run {
 
   /** Skill pushes the night back; a visible gain becomes a "+DAY" moment. */
   private pushNight(px: number, reason: GameEvents['dayGain']['reason']): void {
-    if (this.night.legacy && reason !== 'island') return; // reference terrain: the historical rule
+    if (!this.nightOn || (this.night.legacy && reason !== 'island')) return; // reference terrain: the historical rule
     const g = this.night.push(px, this.bird.x);
     if (g < CONFIG.night.popupMin) return;
     const e = this.eDay;
