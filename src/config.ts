@@ -159,6 +159,27 @@ export const CONFIG = {
     cloudSpacing: 150,
     cloudSize: 210,
     cloudJitter: 40,
+    starsFrom: 0.28, // daylight below which stars fade in
+  },
+
+  // Background (§7.4). Silhouette layers: parallax px on X (half on Y), zoom-out compensation k
+  // (layer scale 1 - (1 - z) k: the background doesn't shrink with the world), ridge base + amplitude
+  // in layer px; colour = mix(horizon, tint * grade, strength).
+  parallax: {
+    layers: [
+      { px: 0.1, k: 0.15, base: -10, amp: 170, tint: '#8C98DC', strength: 0.34 },
+      { px: 0.25, k: 0.35, base: -70, amp: 130, tint: '#6C83C6', strength: 0.52 },
+      { px: 0.5, k: 0.6, base: -130, amp: 100, tint: '#4C78A4', strength: 0.7 },
+    ],
+    mistDepth: 170, // layer px below a ridge where the mist is full
+    mist: 0.5,
+    ridgeLight: 0.07,
+    // drifting cloud layers: parallax, zoom compensation, y range (layer px), size range, spacing, drift px/s, fog
+    clouds: [
+      { px: 0.04, k: 0.1, y0: 420, y1: 760, s0: 170, s1: 280, spacing: 380, drift: 9, fog: 0.5 },
+      { px: 0.15, k: 0.3, y0: 330, y1: 880, s0: 220, s1: 380, spacing: 560, drift: 22, fog: 0.2 },
+    ],
+    cloudShade: '#DCE6F7', // underside of a cloud by day (multiplied by the light colour)
   },
 
   night: {
@@ -277,7 +298,7 @@ export const CONFIG = {
   skyKeys: [
     { daylight: 1.0, top: '#49B8F5', horizon: '#BDEBFF', sun: '#FFF4C9', sunY: 0.8, grade: '#FFFFFF' },
     { daylight: 0.6, top: '#6FA8E8', horizon: '#FFD39A', sun: '#FFE7A8', sunY: 0.58, grade: '#FFF1DC' },
-    { daylight: 0.3, top: '#3B3F8F', horizon: '#FF8A73', sun: '#FF6F4E', sunY: 0.36, grade: '#E2C2E0' },
+    { daylight: 0.3, top: '#3B3F8F', horizon: '#FF8A73', sun: '#FF6F4E', sunY: 0.45, grade: '#E2C2E0' },
     { daylight: 0.0, top: '#0E1233', horizon: '#2B2C66', sun: '#F4F1D0', sunY: 0.78, grade: '#6F78A6' },
   ],
 

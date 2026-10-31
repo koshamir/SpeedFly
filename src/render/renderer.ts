@@ -9,7 +9,7 @@ import { CoinsView } from './coinsView';
 import { DebugLines } from './debugLines';
 import { computeLayout, type Layout } from './layout';
 import { newSky, skyAt } from './palette';
-import { CloudCeiling, NightFront, Sky } from './sky';
+import { Clouds, NightFront, Sky } from './sky';
 import { TerrainMesh } from './terrainMesh';
 import { Water } from './water';
 
@@ -30,7 +30,7 @@ export class Renderer {
   private snap = true;
   private time = 0;
   private readonly sky = new Sky();
-  private readonly clouds = new CloudCeiling();
+  private readonly clouds = new Clouds();
   private readonly terrain = new TerrainMesh();
   private readonly water = new Water();
   private readonly coins = new CoinsView();
@@ -104,12 +104,11 @@ export class Renderer {
     cam.updateProjectionMatrix();
 
     const x0 = r.cx - r.viewW / 2, x1 = r.cx + r.viewW / 2;
-    const y0 = r.cy - r.viewH / 2, y1 = r.cy + r.viewH / 2;
     const pxPerWorld = (L.gw * L.dpr) / r.viewW;
     const s = skyAt(run.daylight, this.skyState);
     const margin = CONFIG.render.meshStep * 4;
-    this.sky.update(s, L.gw / L.gh, this.time);
-    this.clouds.update(x0, x1, y0, y1, s.grade);
+    this.sky.update(s, L.gw / L.gh, this.time, r.cx, r.cy, r.z, L.logW, L.logH);
+    this.clouds.update(r.cx, r.cy, r.z, r.viewW, r.viewH, L.logW, this.time, s);
     this.terrain.update(x0 - margin, x1 + margin, pxPerWorld, s.grade);
     this.water.update(run.world, x0, x1, this.time, pxPerWorld, s.grade);
     this.coins.update(run.world, x0 - margin, x1 + margin, this.time, s.grade);

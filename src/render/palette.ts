@@ -16,7 +16,8 @@ export interface SkyState {
   sun: RGB;
   grade: RGB;
   sunY: number;
-  night: number; // 0 = day keys, 1 = moon/stars
+  night: number; // 0 = sun, 1 = moon
+  stars: number; // 0..1, fades in at dusk
 }
 
 const tmpA: RGB = [0, 0, 0];
@@ -49,9 +50,10 @@ export function skyAt(daylight: number, out: SkyState): SkyState {
     out.sunY = a.sunY + (b.sunY - a.sunY) * f;
     out.night = 0;
   }
+  out.stars = Math.min(1, Math.max(0, 1 - daylight / CONFIG.sky.starsFrom));
   return out;
 }
 
 export function newSky(): SkyState {
-  return { top: [0, 0, 0], horizon: [0, 0, 0], sun: [0, 0, 0], grade: [1, 1, 1], sunY: 0, night: 0 };
+  return { top: [0, 0, 0], horizon: [0, 0, 0], sun: [0, 0, 0], grade: [1, 1, 1], sunY: 0, night: 0, stars: 0 };
 }
