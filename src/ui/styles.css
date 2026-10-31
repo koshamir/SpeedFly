@@ -1032,3 +1032,13 @@ button {
     transform: scale(1.4);
   }
 }
+
+/* full-screen flash (Fever, tier up, island touchdown) */
+.flash {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  z-index: 5;
+}

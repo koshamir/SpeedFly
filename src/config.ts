@@ -288,6 +288,9 @@ export const CONFIG = {
     shakeBad: 10,
     shakeSonic: 14,
     shakeDecay: 0.25,
+    shakeGreat: 4, // GREAT x3+ landing (scaled up with the streak)
+    shakeIsland: 12, // island touchdown
+    shakeFever: 8, // Fever start
     // island-end sequence (render only, by the bird's position): zoom IN on the descent, follow the
     // bird during the ramp + flight, back to the normal framing after the landing
     descentZoom: 1.7, // normal zoom x this on the mountain descent (closer = more speed)
@@ -530,6 +533,9 @@ export const CONFIG = {
     slowMoTime: 0.6, // s of sim time at full slow-mo, centred on the apex
     slowMoEase: 0.25, // s eased in / out on each side
     islandHitStop: 0.07, // s, render-only freeze on the island touchdown
+    flashFever: 0.55, // white screen flash alpha on Fever start
+    flashTier: 0.25, // flash on a speed tier up
+    flashIsland: 0.4, // flash on the island touchdown
     tumbleSpeed: 0.9, // launch at >= vLaunchMax * this: a cosmetic back-flip
     tumbleTime: 0.75,
   },
@@ -553,6 +559,9 @@ export const CONFIG = {
     sting: 0.16, // soaring chord at the apex
     landChord: 0.2, // bright chord on the island touchdown
     bump: 0.35, // bump thump on the descent
+    bpm: 116, // procedural soundtrack tempo (used when src/audio/music.mp3 is absent)
+    swish: 0.22, // takeoff swish
+    tierUp: 0.16, // speed tier up riser + chime
   },
 
   debug: {

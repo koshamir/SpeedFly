@@ -71,6 +71,7 @@ syncSound();
 soundBtn.addEventListener('click', () => {
   audio.unlock();
   audio.setMuted(!audio.muted);
+  audio.click();
   syncSound();
 });
 // WebAudio needs a user gesture (iOS: inside touchend/pointerdown): unlock on every gesture
@@ -92,6 +93,9 @@ function setState(s: State): void {
   state = s;
   stateT = 0;
   audio.setRunning(s !== 'paused' && !document.hidden);
+  if (s === 'title') audio.setMood('title');
+  else if (s === 'playing') audio.setMood('play');
+  else if (s === 'results') audio.setMood('results');
   loop.simulate = s === 'playing';
   hud.show(s === 'playing' || s === 'paused' || s === 'caught');
   screens.showOnly(s === 'title' ? screens.title : s === 'paused' ? screens.pause : s === 'results' ? screens.results : null);
@@ -104,6 +108,7 @@ function setState(s: State): void {
       screens.setBest(best);
     }
     screens.fillResults(run, best, isNew);
+    audio.results(isNew);
     screens.setRetryLocked(true);
   }
 }
@@ -122,6 +127,7 @@ function newRun(seed = newSeed()): void {
 function startPlaying(): void {
   run.start();
   setState('playing');
+  audio.go();
 }
 
 function retry(): void {
@@ -200,6 +206,30 @@ bus.on('land', (e) => {
   if (e.kind === 'great' && e.streak >= CONFIG.juice.hitStopStreak && botPolicy === null) hitStop = CONFIG.juice.hitStop;
 });
 bus.on('feverStart', () => popup('fever', 'FEVER!', 170));
+
+// ---------- extra juice: screen flash + camera shake on the big moments ----------
+const flashEl = el('div', 'flash', uiRoot);
+function flash(alpha: number, color = '#fff'): void {
+  if (botPolicy !== null) return;
+  flashEl.style.transition = 'none';
+  flashEl.style.background = color;
+  flashEl.style.opacity = String(alpha);
+  void flashEl.offsetWidth; // restart the fade
+  flashEl.style.transition = 'opacity 0.35s ease-out';
+  flashEl.style.opacity = '0';
+}
+bus.on('feverStart', () => {
+  flash(CONFIG.juice.flashFever, '#FFF3B0');
+  renderer.rig.shake(CONFIG.camera.shakeFever);
+});
+bus.on('speedTier', (e) => e.tier > e.prev && e.tier >= 2 && flash(CONFIG.juice.flashTier));
+bus.on('land', (e) => {
+  if (e.kind === 'great' && e.streak >= 3) renderer.rig.shake(CONFIG.camera.shakeGreat * Math.min(3, e.streak / 3));
+});
+bus.on('islandLand', (e) => {
+  renderer.rig.shake(CONFIG.camera.shakeIsland);
+  if (e.kind === 'great') flash(CONFIG.juice.flashIsland, '#FFE14D');
+});
 bus.on('skyTouch', () => popup('sky', 'SKY TOUCH!', 120));
 bus.on('coin', (e) => e.type === 'blue' && popup('boost', 'BOOST!', 85));
 /** Banner of island k: number, style and palette names. */
