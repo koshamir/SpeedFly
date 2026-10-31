@@ -134,23 +134,23 @@ keep key points ≥ 3 screen widths ahead, drop those > 2 screens behind.
 
 - Start: nest on a peak at x=0, y=200, bird asleep. The day starts on the first touch.
 - Island 1: first 3 hills are gentle (height ×`onboardH`, no deep/wide valleys) for onboarding.
-- **Island end = a mountain (v5)**: climb (, ) → one long smooth descent of
-  × px (drop , sharper below the summit ) — measured
-  4.2–6.4 s for every bot in  (column ) → launch valley → ramp (, ) →
-  lip → cliff → sea ( under the lip) → landing hill. Snow cap () and rock tone in the hill shader.
-  Bumps (, , ) are VISUAL only: a mesh mound + sprite squash kick + dust + camera nudge + thump.
-- **Safe sequence**: from  px before the summit to the landing target a landing is never worse than GOOD
-  () and the night stands still ().  in npm run gameplay = 0.
-- **Scripted island jump**: from the upper ramp or the lip an exact parabola () to the target on the
-  landing slope (); the launch angle is chosen so the arrival is TANGENT to the slope there (≥ ),
-  speed clamped to [, ] only changes the time: 3.8–4.9 s measured. Input ignored; GREAT landing.
-  Events  / ; sky coins along the parabola.
-- **Camera**: no wide shot. By position: zoom IN × on the descent (speed zoom only, view centred on the bird),
-  bird focus at  from the ramp through the flight, back to the normal rig over  after the target.
+- **Island end = a mountain (v5)**: climb (`summitW`, `summitRise`) → one long smooth descent of
+  `descentTime` × `descentSpeed` px (drop `descentDrop`, sharper below the summit `descentSharp`) — measured
+  4.2–6.4 s for every bot in `npm run gameplay` (column `descent s`) → launch valley → ramp (`rampDx`, `rampRise`) →
+  lip → cliff → sea (`seaBelowLip` under the lip) → landing hill. Snow cap (`snowDrop`) and rock tone in the hill shader.
+  Bumps (`bumps`, `bumpH`, `bumpW`) are VISUAL only: a mesh mound + sprite squash kick + dust + camera nudge + thump.
+- **Safe sequence**: from `safeBefore` px before the summit to the landing target a landing is never worse than GOOD
+  (`bird.safe`) and the night stands still (`Run.nightPaused`). `seq BAD` in npm run gameplay = 0.
+- **Scripted island jump**: from the upper ramp or the lip an exact parabola (`bird.flyG`) to the target on the
+  landing slope (`landAt`); the launch angle is chosen so the arrival is TANGENT to the slope there (≥ `launchAngle`);
+  speed clamped to [`vLaunchMin`, `vLaunchMax`] only changes the time: 3.8–4.9 s measured. Input ignored; GREAT landing.
+  Events `islandLaunch` / `islandLand`; sky coins along the parabola.
+- **Camera**: no wide shot. By position: zoom IN × `descentZoom` on the descent (speed zoom only, view centred on the
+  bird), bird focus at `flightZoom` from the ramp through the flight, back to the normal rig over `focusOutDx`.
 - Passing the landing-hill peak fires `island{k+1}` (the banner already showed at the apex).
 
 ### 4.3 Island-end cinematic (render / audio / UI)
-Descent: speed streaks grow (), bump kicks. Launch: burst + dust off the lip, back-flip on fast launches.
+Descent: speed streaks grow (`fx.descentLines`), bump kicks. Launch: burst + dust off the lip, back-flip on fast launches.
 Flight: slow-mo 0.8 at the apex, wind streaks, long ribbon, apex clouds, sun glare, palette crossfade, ISLAND banner at the
 apex, whoosh/sting. Landing: sparkles, PERFECT LANDING + 300·k, hit-stop, chord.
 
