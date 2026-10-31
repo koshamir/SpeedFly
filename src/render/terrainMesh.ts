@@ -15,6 +15,8 @@ interface Chunk {
   depth: Float32Array;
   isl: Float32Array;
   wet: Float32Array;
+  isl2: Float32Array;
+  mix: Float32Array;
   id: number; // chunk index (x / chunkWidth), NaN = free
 }
 
@@ -59,7 +61,11 @@ export class TerrainMesh {
         uPxPerWorld: { value: 1 },
         uGrade: { value: new THREE.Color(1, 1, 1) },
         uRimW: { value: R.rimWidth },
+        uRimMinPx: { value: R.rimMinPx },
         uInner: { value: R.innerShadow },
+        uSheen: { value: R.sheen },
+        uSheenDist: { value: R.sheenDist },
+        uGrain: { value: R.grain },
         uShadeDist: { value: R.shadeDist },
         uShadeMin: { value: R.shadeMin },
         uWobble: { value: new THREE.Vector4(R.bandWobbleA, R.bandWobbleB, R.bandFreqA, R.bandFreqB) },
@@ -84,18 +90,22 @@ export class TerrainMesh {
       const depth = new Float32Array(n);
       const isl = new Float32Array(n * 4);
       const wet = new Float32Array(n);
+      const isl2 = new Float32Array(n * 4);
+      const mix = new Float32Array(n);
       const g = new THREE.BufferGeometry();
       g.setIndex(index);
       g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       g.setAttribute('aDepth', new THREE.BufferAttribute(depth, 1));
       g.setAttribute('aIsl', new THREE.BufferAttribute(isl, 4));
       g.setAttribute('aWet', new THREE.BufferAttribute(wet, 1));
+      g.setAttribute('aIsl2', new THREE.BufferAttribute(isl2, 4));
+      g.setAttribute('aMix', new THREE.BufferAttribute(mix, 1));
       const mesh = new THREE.Mesh(g, this.material);
       mesh.frustumCulled = false;
       mesh.visible = false;
       mesh.renderOrder = 3;
       this.group.add(mesh);
-      this.chunks.push({ mesh, pos, depth, isl, wet, id: NaN });
+      this.chunks.push({ mesh, pos, depth, isl, wet, isl2, mix, id: NaN });
     }
   }
 
@@ -126,7 +136,11 @@ export class TerrainMesh {
       this.build(free, id);
     }
     const u = this.material.uniforms;
+    const R = CONFIG.render;
     u.uPxPerWorld.value = pxPerWorld;
+    u.uGrain.value = R.grain;
+    u.uSheen.value = R.sheen;
+    u.uRimW.value = R.rimWidth;
     (u.uGrade.value as THREE.Color).setRGB(grade[0], grade[1], grade[2]);
   }
 
@@ -135,10 +149,22 @@ export class TerrainMesh {
     for (let i = 0; i < this.cols; i++) {
       const x = id * W + i * step;
       let y = this.cur.height(x);
-      const isl = this.world.islandAt(x);
+      let isl = this.world.islandAt(x);
+      let isl2 = isl, mix = 0;
       // water gaps: the seabed is drawn as a deep bowl below the physical (flat) water contact
       const sea = this.world.waterAt(x);
       let wet = 0;
+      if (sea !== null) {
+        // the palette switch hides in a smooth blend across the gap: lip island -> landing island
+        isl = this.world.islandAt(sea.lipX - 1);
+        isl2 = this.world.islandAt(sea.landingX + 1);
+        // fully blended before the landing peak: there the vertex switches to the next island at
+        // mix = 1, so the interpolated (meaningless) mix of two palette ids never shows
+        const t = Math.min(1, Math.max(0, (x - sea.lipX) / (R.seaBlend * (sea.landingX - sea.lipX))));
+        mix = t * t * (3 - 2 * t);
+        if (t >= 1) isl = isl2;
+        else if (t <= 0) isl2 = isl;
+      }
       if (sea !== null && x > sea.wx0 && x < sea.wx1) {
         const W = sea.wx1 - sea.wx0;
         const D = Math.min(R.seaDepth, W * R.seaDepthPerWidth);
@@ -151,6 +177,7 @@ export class TerrainMesh {
       c.pos[b] = x;
       c.pos[b + 1] = bottom;
       c.wet[i * 2] = c.wet[i * 2 + 1] = wet;
+      c.mix[i * 2] = c.mix[i * 2 + 1] = mix;
       c.depth[i * 2] = 0;
       c.depth[i * 2 + 1] = y - bottom;
       for (let v = 0; v < 2; v++) {
@@ -159,6 +186,10 @@ export class TerrainMesh {
         c.isl[o + 1] = isl.bandWidth;
         c.isl[o + 2] = isl.bandMode;
         c.isl[o + 3] = isl.bandSeed;
+        c.isl2[o] = isl2.palette;
+        c.isl2[o + 1] = isl2.bandWidth;
+        c.isl2[o + 2] = isl2.bandMode;
+        c.isl2[o + 3] = isl2.bandSeed;
       }
     }
     const g = c.mesh.geometry;
@@ -166,6 +197,8 @@ export class TerrainMesh {
     g.attributes.aDepth.needsUpdate = true;
     g.attributes.aIsl.needsUpdate = true;
     g.attributes.aWet.needsUpdate = true;
+    g.attributes.aIsl2.needsUpdate = true;
+    g.attributes.aMix.needsUpdate = true;
     c.id = id;
     c.mesh.visible = true;
   }

@@ -237,7 +237,11 @@ export const CONFIG = {
     chunkPool: 8,
     meshBottom: -5000, // terrain/water bottom (world y)
     rimWidth: 4,
+    rimMinPx: 2.5, // device px: the rim never gets thinner when zoomed out
     innerShadow: 12,
+    sheen: 0.07, // brightness boost right under the rim (light from above)
+    sheenDist: 70,
+    grain: 0.025, // +-2.5% screen-space grain on the hills
     shadeDist: 900,
     shadeMin: 0.72,
     bandWobbleA: 18,
@@ -263,6 +267,7 @@ export const CONFIG = {
     seaDepthPerWidth: 0.8,
     seaBowl: 0.6,
     wetFade: 40,
+    seaBlend: 0.85, // share of the gap (lip -> landing peak) over which the island looks blend
     wetTint: 0.55,
     wetTintDepth: 260,
     foam: 3,
