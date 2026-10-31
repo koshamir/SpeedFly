@@ -1,12 +1,13 @@
 import { CONFIG } from '../config';
 import { el } from './hud';
 
-export type PopupKind = 'great' | 'points' | 'fever' | 'sky' | 'boost' | 'splash' | 'bad';
+export type PopupKind = 'great' | 'nice' | 'perfect' | 'points' | 'fever' | 'sky' | 'boost' | 'splash' | 'bad';
 
 interface Popup {
   e: HTMLDivElement;
   age: number;
   lift: number; // logical px above the bird
+  w: number; // CSS px width (measured on show): long popups are kept inside the screen
 }
 
 // Popups near the bird: bounce, rise, fade (CSS). They track the bird (ahead and above it, so they
@@ -20,7 +21,7 @@ export class Popups {
   private bannerTimer = 0;
 
   constructor(parent: HTMLElement) {
-    for (let i = 0; i < CONFIG.ui.popupMax; i++) this.pool.push({ e: el('div', 'popup', parent), age: 1e9, lift: 0 });
+    for (let i = 0; i < CONFIG.ui.popupMax; i++) this.pool.push({ e: el('div', 'popup', parent), age: 1e9, lift: 0, w: 0 });
     this.banner = el('div', 'banner', parent);
     this.bannerMain = el('div', 'banner-main', this.banner);
     this.bannerSub = el('div', 'banner-sub', this.banner);
@@ -37,6 +38,7 @@ export class Popups {
     p.e.className = 'popup';
     void p.e.offsetWidth; // restart the animation
     p.e.className = `popup show ${kind}`;
+    p.w = p.e.offsetWidth;
   }
 
   /** bx, by: bird on screen (CSS px); u: CSS px per logical px; w: game width (CSS px). */
@@ -46,7 +48,8 @@ export class Popups {
     for (const p of this.pool) {
       if (p.age > U.popupLife) continue;
       p.age += dt;
-      p.e.style.left = `${x}px`;
+      const m = p.w / 2 + 16 * u;
+      p.e.style.left = `${m * 2 < w ? Math.min(Math.max(x, m), w - m) : w / 2}px`;
       p.e.style.top = `${by - p.lift * u}px`;
     }
   }

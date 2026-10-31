@@ -2,15 +2,16 @@ import * as THREE from 'three';
 import { CONFIG } from '../../config';
 import type { GameBus, GameEvents } from '../../core/events';
 import type { Run } from '../../sim/run';
+import type { TerrainCursor } from '../../world/terrain';
 import { hexRgb, type RGB } from '../palette';
 import { Frame, Particles, PF } from './particles';
 import { Trail } from './trail';
 
 const rnd = (a: number, b: number): number => a + Math.random() * (b - a);
 
-// Event-driven FX (§7.6). Bound only to takeoff / land / feverStart / skyTouch / coin / speedTier
-// (never to micro-hops: those don't reach the bus). Handlers copy numbers out of the payloads.
-// Continuous FX (speed lines, trail) follow the run state each frame.
+// Event-driven FX (§7.6). Bound only to takeoff / land / feverStart / skyTouch / coin / speedTier /
+// islandLaunch / islandLand (never to micro-hops: those don't reach the bus). Handlers copy numbers out
+// of the payloads. Continuous FX (speed lines, trail, island-jump wind) follow the run state each frame.
 export class Fx {
   readonly group = new THREE.Group();
   readonly particles = new Particles();
@@ -25,6 +26,11 @@ export class Fx {
   private readonly grade: RGB = [1, 1, 1];
   private readonly tmp: RGB = [0, 0, 0];
   private readonly c: Record<string, RGB> = {};
+  private cur: TerrainCursor | null = null;
+  // island jump: clouds that drift in front of the bird near the apex
+  private cloudX = Infinity;
+  private apexY = 0;
+  private flyAcc = 0;
 
   constructor(bus: GameBus) {
     this.particles.mesh.renderOrder = 7;
@@ -47,6 +53,8 @@ export class Fx {
     bus.on('coin', (e) => this.coinGlint(e.type === 'blue', e.x, e.y));
     bus.on('feverStart', () => this.feverBurst());
     bus.on('speedTier', (e) => this.onTier(e.tier, e.prev));
+    bus.on('islandLaunch', (e) => this.onLaunch(e));
+    bus.on('islandLand', (e) => this.onIslandLand(e));
   }
 
   reset(run: Run): void {
@@ -55,6 +63,54 @@ export class Fx {
     this.trail.reset();
     this.sonicArmed = true;
     this.lastSonic = -1e9;
+    this.cur = run.world.terrain.cursor();
+    this.cloudX = Infinity;
+  }
+
+  /** Island jump take-off: a burst + dust thrown off the lip; clouds get scheduled near the apex. */
+  private onLaunch(e: GameEvents['islandLaunch']): void {
+    const p = this.particles, F = CONFIG.fx;
+    const gy = this.cur ? this.cur.height(e.x) : e.y - CONFIG.physics.birdRadius;
+    const col = this.rim(e.x);
+    for (let i = 0; i < F.launchDust; i++)
+      p.emit(Frame.Puff, e.x + rnd(-30, 20), gy + 6, rnd(-420, -60), rnd(60, 260), rnd(0.5, 0.9), rnd(18, 30), rnd(60, 110), col, 0.9, 0, 160, 2.5, 0, 0, PF.Grow);
+    for (let i = 0; i < F.launchSparks; i++) {
+      const a = rnd(0, Math.PI * 2), v = rnd(260, 700);
+      p.emit(Frame.Sparkle, e.x, e.y, Math.cos(a) * v, Math.sin(a) * v, rnd(0.5, 0.9), rnd(30, 50), 4, i % 3 ? this.c.spark : this.c.white, 1, 0.9, 200, 3, rnd(0, 3), rnd(-6, 6));
+    }
+    p.emit(Frame.Ring, e.x, e.y, 0, 0, 0.6, 40, 520, this.c.white, 0.9, 1, 0, 0, 0, 0, PF.Grow, 1);
+    p.emit(Frame.Ring, e.x, e.y, 0, 0, 0.45, 30, 300, this.c.spark, 0.8, 1, 0, 0, 0, 0, PF.Grow, 1);
+    this.cloudX = e.apexX - F.flightCloudAt * (e.apexX - e.x);
+    this.apexY = e.apexY;
+  }
+
+  /** Island touchdown: a big sparkle impact + dust in the new island's rim colour. */
+  private onIslandLand(e: GameEvents['islandLand']): void {
+    const p = this.particles, F = CONFIG.fx;
+    const gy = this.cur ? this.cur.height(e.x) : e.y - CONFIG.physics.birdRadius;
+    this.cloudX = Infinity;
+    for (let i = 0; i < F.landSparks; i++) {
+      const a = rnd(0, Math.PI), v = rnd(250, 820);
+      p.emit(Frame.Sparkle, e.x, e.y, Math.cos(a) * v, Math.sin(a) * v + 160, rnd(0.6, 1.1), rnd(30, 56), 4, i % 2 ? this.c.gold : this.c.spark, 1, 0.9, 420, 2.5, rnd(0, 3), rnd(-6, 6));
+    }
+    const col = this.rim(e.x);
+    for (let i = 0; i < 8; i++)
+      p.emit(Frame.Puff, e.x + rnd(-24, 24), gy + 6, rnd(-160, 420), rnd(40, 200), rnd(0.45, 0.8), rnd(20, 30), rnd(70, 110), col, 0.85, 0, 180, 3, 0, 0, PF.Grow);
+    p.emit(Frame.Ring, e.x, e.y, 0, 0, 0.55, 40, 460, this.c.gold, 0.9, 1, 0, 0, 0, 0, PF.Grow, 0.5);
+    p.emit(Frame.Ring, e.x, e.y, 0, 0, 0.4, 30, 260, this.c.white, 0.9, 1, 0, 0, 0, 0, PF.Grow, 0.5);
+  }
+
+  /** Big soft clouds around the apex height, ahead of the bird: it flies through / behind them. */
+  private apexClouds(bx: number): void {
+    const p = this.particles, col = this.lit(this.c.white, 0.6);
+    // soft radial blobs in loose clusters (the Puff frame's hard disc reads as soap bubbles when huge)
+    for (let i = 0; i < CONFIG.fx.flightClouds; i++) {
+      const x = bx + rnd(200, 1700), y = this.apexY + rnd(-260, 140);
+      for (let j = 0; j < 3; j++) {
+        const s = rnd(420, 820);
+        p.emit(Frame.Dot, x + rnd(-160, 160), y + rnd(-50, 50), rnd(-90, -30), 0, rnd(2.6, 3.4), s, s * 1.1, col, rnd(0.5, 0.75), 0, 0, 0, 0, 0, PF.FadeIn);
+      }
+    }
   }
 
   /** Colour graded by the time of day (into this.tmp). */
@@ -158,7 +214,8 @@ export class Fx {
     }
   }
 
-  update(dt: number, bx: number, by: number, scale: number, left: number, bottom: number, z: number, logW: number, logH: number, grade: RGB, playing: boolean): void {
+  /** cine: 0..1 share of the island-jump flight shot on screen. */
+  update(dt: number, bx: number, by: number, scale: number, left: number, bottom: number, z: number, logW: number, logH: number, grade: RGB, playing: boolean, cine = 0): void {
     const F = CONFIG.fx, run = this.run;
     this.time += dt;
     this.grade[0] = grade[0];
@@ -175,7 +232,23 @@ export class Fx {
         this.particles.emit(Frame.Streak, logW + rnd(0, 120), rnd(0.14, 0.86) * logH, -v, 0, rnd(0.25, 0.4), rnd(150, 300), 90, this.c.white, a, 0.4, 0, 0, Math.PI, 0, PF.Screen | PF.FadeIn, 0.09);
       }
     } else this.lineAcc = 0;
-    this.trail.update(dt, bx, by, playing && (tier >= 3 || run.fever), run.fever, scale, this.time);
+    // island jump: wind streaks along the flight direction, clouds at the apex, a long ribbon
+    const flying = playing && run.flightK > 0;
+    if (flying) {
+      const b = run.bird, sp = Math.hypot(b.vx, b.vy) || 1;
+      const dx = -b.vx / sp, dy = -b.vy / sp, rot = Math.atan2(dy, dx);
+      this.flyAcc += dt * F.flightLineRate * cine;
+      while (this.flyAcc >= 1) {
+        this.flyAcc -= 1;
+        const v = rnd(2400, 3600), sx = rnd(-0.1, 1.1) * logW, sy = rnd(0.1, 0.95) * logH;
+        this.particles.emit(Frame.Streak, sx - dx * 300, sy - dy * 300, dx * v, dy * v, rnd(0.25, 0.45), rnd(180, 340), 90, this.c.white, 0.55, 0.5, 0, 0, rot, 0, PF.Screen | PF.FadeIn, 0.08);
+      }
+      if (bx >= this.cloudX) {
+        this.cloudX = Infinity;
+        this.apexClouds(bx);
+      }
+    } else this.flyAcc = 0;
+    this.trail.update(dt, bx, by, playing && (tier >= 3 || run.fever || flying), run.fever, scale, this.time, flying);
     this.particles.update(dt, left, bottom, z);
   }
 }

@@ -412,7 +412,8 @@ export class BirdView {
   private blinkT = 2;
   private n = 0;
   // current body transform (shared by the part() calls of one frame)
-  private readonly xf = { ox: 0, oy: 0, ca: 1, sa: 0, rs: 1, sx: 1, sy: 1, size: 1, lr: 1, lg: 1, lb: 1 };
+  private readonly xf = { ox: 0, oy: 0, ca: 1, sa: 0, rs: 1, sx: 1, sy: 1, size: 1, lr: 1, lg: 1, lb: 1, ang: 0 };
+  private tumbleT = 0; // island-jump back-flip (cosmetic), counts down
   private readonly cScarf: RGB = hexRgb(C.scarf);
   private readonly cOut: RGB = hexRgb(CONFIG.colors.outline);
 
@@ -455,6 +456,11 @@ export class BirdView {
       if (e.kind === 'bad') this.dizzyT = B.dizzyTime;
     });
     bus.on('skyTouch', () => (this.happyT = CONFIG.bird.happyTime));
+    // a fast island launch earns a little back-flip (sprite only; the physics state is untouched)
+    bus.on('islandLaunch', (e) => {
+      if (e.speed >= CONFIG.islands.vLaunchMax * CONFIG.juice.tumbleSpeed) this.tumbleT = CONFIG.juice.tumbleTime;
+    });
+    bus.on('islandLand', () => (this.happyT = CONFIG.bird.happyTime));
   }
 
   reset(run?: Run): void {
@@ -462,7 +468,7 @@ export class BirdView {
     this.stretch = 0;
     this.squash[0] = 1;
     this.squash[1] = 0;
-    this.dizzyT = this.happyT = 0;
+    this.dizzyT = this.happyT = this.tumbleT = 0;
     this.scarfInit = false;
     if (run) this.cur = run.world.terrain.cursor();
   }
@@ -473,7 +479,8 @@ export class BirdView {
     this.time += dt;
     const t = this.time;
     const speed = run.speed;
-    const diving = !b.grounded && run.held && !asleep;
+    const glide = !asleep && run.flightK > 0; // scripted island jump: input is ignored
+    const diving = !b.grounded && run.held && !asleep && !glide;
     const crawling = !asleep && run.started && b.grounded && speed < CONFIG.physics.sMin * B.crawlFactor;
     this.dizzyT -= dt;
     this.happyT -= dt;
@@ -498,6 +505,7 @@ export class BirdView {
     let wingT = B.wingRest, flapT = 0, flapHz = B.flapHz;
     if (asleep) wingT = B.wingTucked;
     else if (crawling) (wingT = B.wingOpen), (flapT = B.flapCrawlAmp), (flapHz = B.flapCrawlHz);
+    else if (glide) (wingT = B.wingGlide), (flapT = B.glideFlap), (flapHz = B.glideFlapHz);
     else if (diving) wingT = B.wingTucked;
     else if (!b.grounded) (wingT = B.wingOpen), (flapT = B.flapAmp);
     else if (run.held) wingT = B.wingTucked * 0.6;
@@ -509,8 +517,15 @@ export class BirdView {
 
     // origin: the physics circle centre. Squash compresses toward the feet (sprite-local down);
     // the zoom-out enlargement grows upward so the bigger body still sits on the ground.
+    // back-flip: one full turn, eased in/out
+    let ang = this.angle;
+    if (this.tumbleT > 0) {
+      this.tumbleT -= dt;
+      const u = Math.max(0, 1 - this.tumbleT / CONFIG.juice.tumbleTime);
+      ang += Math.PI * 2 * u * u * (3 - 2 * u);
+    }
     const drop = (1 - sq) * R * scale, lift = (scale - 1) * R;
-    const ca = Math.cos(this.angle), sa = Math.sin(this.angle);
+    const ca = Math.cos(ang), sa = Math.sin(ang);
     const ox = x + sa * Math.max(0, drop), oy = y - ca * Math.max(0, drop) + lift;
     const rs = R * scale, size = 4 * rs;
     const lit = B.gradeMix;
@@ -527,6 +542,7 @@ export class BirdView {
     X.lr = lr;
     X.lg = lg;
     X.lb = lb;
+    X.ang = ang;
     this.n = 0;
 
     // Fever aura (additive, pulsing, hue cycling)
@@ -544,6 +560,7 @@ export class BirdView {
     if (asleep) face = PART.faceSleep;
     else if (this.dizzyT > 0) face = PART.faceDizzy;
     else if (this.happyT > 0) face = PART.faceHappy;
+    else if (glide) face = PART.faceSparkle;
     else if (diving || crawling) face = PART.faceSquint;
     else if (run.fever) face = PART.faceSparkle;
     else if (this.blinkT < 0) face = PART.faceSquint;
@@ -566,7 +583,7 @@ export class BirdView {
   /** One rig part: (lx, ly) body-local in R, rotation relative to the body, scale factors. */
   private part(frame: number, lx: number, ly: number, rot: number, ksx: number, ksy: number, shade = 1, a = 1, add = 0): void {
     const X = this.xf, px = lx * X.rs * X.sx, py = ly * X.rs * X.sy;
-    this.batch.set(this.n++, X.ox + px * X.ca - py * X.sa, X.oy + px * X.sa + py * X.ca, this.angle + rot, X.size * X.sx * ksx, X.size * X.sy * ksy, X.lr * shade, X.lg * shade, X.lb * shade, a, frame, add);
+    this.batch.set(this.n++, X.ox + px * X.ca - py * X.sa, X.oy + px * X.sa + py * X.ca, X.ang + rot, X.size * X.sx * ksx, X.size * X.sy * ksy, X.lr * shade, X.lg * shade, X.lb * shade, a, frame, add);
   }
 
   private updateScarf(dt: number, ox: number, oy: number, ca: number, sa: number, sx: number, sy: number, rs: number, speed: number, scale: number, lr: number, lg: number, lb: number): void {

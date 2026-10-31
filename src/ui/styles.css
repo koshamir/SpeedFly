@@ -192,6 +192,38 @@ button {
 .dots.fever .dot:nth-child(3) {
   animation-delay: 0.3s;
 }
+/* GOOD keeps the streak: a quick glint; BAD resets it: a red flash + shake */
+.dots.keep .dot.on {
+  animation: dotKeep 0.45s ease-out;
+}
+@keyframes dotKeep {
+  40% {
+    background: #fff;
+    transform: scale(1.45);
+  }
+}
+.dots.reset {
+  animation: dotsShake 0.4s ease-out;
+}
+.dots.reset .dot {
+  animation: dotReset 0.6s ease-out;
+}
+@keyframes dotsShake {
+  15%,
+  55% {
+    transform: translateX(calc(var(--u) * -7px));
+  }
+  35%,
+  75% {
+    transform: translateX(calc(var(--u) * 7px));
+  }
+}
+@keyframes dotReset {
+  0% {
+    background: #ff5a4f;
+    transform: scale(1.3);
+  }
+}
 @keyframes feverDot {
   to {
     background: #ffd23f;
@@ -278,6 +310,17 @@ button {
 }
 .popup.boost {
   color: #3fd5ff;
+}
+.popup.nice {
+  color: #fff3b0;
+  font-size: calc(var(--u) * 34px);
+}
+.popup.perfect {
+  color: #ffd23f;
+  font-size: calc(var(--u) * 58px);
+}
+.popup.show.perfect {
+  animation-duration: 1.4s;
 }
 .popup.splash {
   color: #7fd3ff;
@@ -835,6 +878,33 @@ button {
 .tune-group.hidden {
   display: none;
 }
+.tune-warn {
+  margin: 4px 0;
+  font-size: 12px;
+  color: #ff8a80;
+}
+.tune-warn.hidden {
+  display: none;
+}
+.tune-slider.warn .tune-label {
+  color: #ff5a4f;
+}
+.tune-note {
+  align-self: center;
+  font-size: 12px;
+  color: #a99fcf;
+}
+.tune-chip.mod::after {
+  content: ' ●';
+  color: #ffd23f;
+}
+.tune-traj {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
 .tune-ghead b {
   color: #ffd23f;
   margin-right: 8px;
@@ -893,6 +963,17 @@ button {
   -webkit-text-stroke: calc(var(--u) * 10px) var(--ink);
   paint-order: stroke fill;
   transition: transform 0.15s;
+}
+.teach-sub {
+  margin-top: calc(var(--u) * 4px);
+  max-width: 86%;
+  text-align: center;
+  font-family: 'Fredoka', sans-serif;
+  font-weight: 600;
+  font-size: calc(var(--u) * 26px);
+  color: #fff;
+  -webkit-text-stroke: calc(var(--u) * 6px) var(--ink);
+  paint-order: stroke fill;
 }
 .teacher.hold .teach-label {
   color: #5cff7a;

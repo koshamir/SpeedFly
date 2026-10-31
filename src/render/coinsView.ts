@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config';
 import { COIN_BLUE } from '../world/collectibles';
+import type { Run } from '../sim/run';
 import type { World } from '../world/world';
 import { hexRgb, type RGB } from './palette';
 import frag from './shaders/coin.frag.glsl?raw';
@@ -38,7 +39,8 @@ export class CoinsView {
     this.mesh.count = 0;
   }
 
-  update(world: World, x0: number, x1: number, time: number, grade: RGB): void {
+  /** sky = the island jump's coins (drawn bigger: the flight shot is zoomed far out). */
+  update(world: World, x0: number, x1: number, time: number, grade: RGB, sky: Run['sky']): void {
     const c = world.coins, K = CONFIG.coins, m = this.m;
     let n = 0;
     for (let i = 0; i < c.n && n < MAX; i++) {
@@ -52,6 +54,15 @@ export class CoinsView {
       m.setPosition(x, c.y[i], 0);
       this.mesh.setMatrixAt(n, m);
       this.mesh.setColorAt(n, blue ? this.blue : this.gold);
+      n++;
+    }
+    for (let i = 0; i < sky.n && n < MAX; i++) {
+      if (!sky.alive[i]) continue;
+      const spin = 0.25 + 0.75 * Math.abs(Math.cos(time * K.spinRate + i * 0.7));
+      m.makeScale(K.skySize * spin, K.skySize, 1);
+      m.setPosition(sky.x[i], sky.y[i], 0);
+      this.mesh.setMatrixAt(n, m);
+      this.mesh.setColorAt(n, this.gold);
       n++;
     }
     this.mesh.count = n;

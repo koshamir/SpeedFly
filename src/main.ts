@@ -16,6 +16,7 @@ import { Run } from './sim/run';
 import { el, Hud } from './ui/hud';
 import { Popups, type PopupKind } from './ui/popups';
 import { applyTuning, parseTuning, worldKey } from './tuning';
+import { islandStyle } from './world/islands';
 import { Screens } from './ui/screens';
 import { Teacher } from './ui/teacher';
 import type { TunePanel } from './ui/tune';
@@ -108,6 +109,9 @@ function setState(s: State): void {
 }
 
 function newRun(seed = newSeed()): void {
+  jump.on = false;
+  jump.banner = 0;
+  jump.t0 = jump.tLand = -1;
   run = new Run(seed, mode, bus);
   bot = botPolicy ? new Bot(run.world.terrain, botPolicy, botDelay) : null;
   renderer.setRun(run);
@@ -182,8 +186,12 @@ document.addEventListener('visibilitychange', () => {
 const scr = { x: 0, y: 0 };
 const popup = (kind: PopupKind, text: string, lift: number): void => popups.show(kind, text, lift);
 bus.on('land', (e) => {
+  hud.landed(e.kind);
+  if (run.flightK > 0) return; // the scripted island landing has its own popup (islandLand)
   if (e.kind === 'great') popup('great', e.streak > 1 ? `GREAT x${e.streak}` : 'GREAT!', 105);
+  else if (e.kind === 'ok') popup('nice', 'NICE', 80); // GOOD: the streak is kept
   else if (e.kind === 'splash') popup('splash', 'SPLASH!', 90);
+  // BAD: no text — the thud and the streak dots resetting say it
 });
 bus.on('points', (e) => popup('points', `+${e.amount}`, 50));
 // hit-stop: a short render-only freeze on big GREAT streaks
@@ -194,10 +202,39 @@ bus.on('land', (e) => {
 bus.on('feverStart', () => popup('fever', 'FEVER!', 170));
 bus.on('skyTouch', () => popup('sky', 'SKY TOUCH!', 120));
 bus.on('coin', (e) => e.type === 'blue' && popup('boost', 'BOOST!', 85));
-bus.on('island', (e) => {
-  const isl = run.world.islands[e.index - 1];
-  popups.showBanner(`ISLAND ${e.index}`, isl ? CONFIG.palettes[isl.palette].name : '');
+/** Banner of island k: number, style and palette names. */
+function islandBanner(k: number): void {
+  if (jump.banner === k) return;
+  jump.banner = k;
+  const isl = run.world.islands[k - 1];
+  popups.showBanner(`ISLAND ${k}`, isl ? `${islandStyle(k).name} · ${CONFIG.palettes[isl.palette].name}` : '');
+}
+bus.on('island', (e) => islandBanner(e.index));
+
+// ---------- island jump: slow-mo around the apex, banner + sting at the apex, touchdown juice ----------
+const jump = { on: false, k: 0, apexX: 0, tApex: 0, apexDone: false, banner: 0, t0: -1, tLand: -1 };
+bus.on('islandLaunch', (e) => {
+  jump.on = true;
+  jump.k = e.k;
+  jump.apexX = e.apexX;
+  jump.tApex = run.t + (e.duration * (e.apexX - e.x)) / Math.max(1, e.targetX - e.x);
+  jump.apexDone = false;
+  jump.t0 = run.t;
 });
+bus.on('islandLand', (e) => {
+  jump.on = false;
+  jump.tLand = run.t;
+  if (e.kind === 'great') popup('perfect', 'PERFECT LANDING!', 150);
+  hitStop = Math.max(hitStop, CONFIG.juice.islandHitStop);
+});
+/** Time scale of the frame: eased dip to slowMo around the apex (by sim time: deterministic pacing). */
+function slowMo(): number {
+  const J = CONFIG.juice;
+  if (!jump.on || state !== 'playing') return 1;
+  const d = Math.abs(run.t - jump.tApex) - J.slowMoTime / 2;
+  const w = d <= 0 ? 1 : d >= J.slowMoEase ? 0 : 1 - (d / J.slowMoEase) * (d / J.slowMoEase) * (3 - (2 * d) / J.slowMoEase);
+  return 1 - (1 - J.slowMo) * w;
+}
 bus.on('caught', () => setState('caught'));
 const lastLand = { kind: '', t: -1 };
 bus.on('land', (e) => {
@@ -231,6 +268,7 @@ function loadTune(open: boolean): void {
       restart,
       randomSeed,
       changed: () => debug?.refresh(),
+      toScreen: (x, y, out) => renderer.toScreen(x, y, out),
     });
     if (open) tune.toggle(true);
   });
@@ -253,7 +291,14 @@ if (import.meta.hot)
 let frames = 0;
 let elapsed = 0;
 function frame(dt: number, alpha: number): void {
+  loop.timeScale = slowMo();
+  dt *= loop.timeScale; // render time follows the slow-mo too
   stateT += dt;
+  if (jump.on && !jump.apexDone && run.cx >= jump.apexX) {
+    jump.apexDone = true;
+    islandBanner(jump.k + 1);
+    audio.sting();
+  }
   frames++;
   elapsed += dt;
   if (state === 'caught' && stateT >= CONFIG.night.caughtTime) setState('results');
@@ -271,7 +316,7 @@ function frame(dt: number, alpha: number): void {
   // during a hit-stop the canvas keeps its last image; the sim keeps stepping
   if (hitStop > 0) hitStop -= dt;
   else renderer.frame(dt, alpha, asleep, state === 'playing');
-  audio.frame(run.speed, !run.bird.grounded && run.held, state === 'playing');
+  audio.frame(run.speed, !run.bird.grounded && run.held && run.flightK === 0, state === 'playing', renderer.rig.cine);
   hud.update(dt, run, renderer.skyState);
   renderer.toScreen(renderer.bx, renderer.by, scr);
   const u = renderer.layout.gw / renderer.layout.logW;
@@ -315,6 +360,8 @@ loop.start();
   fps: () => (elapsed > 0 ? frames / elapsed : 0),
   lastLand: () => lastLand,
   quality: () => quality.level,
+  jump: () => jump,
+  cine: () => renderer.rig.cine,
   held: () => input.held,
   overWater: () => run.world.islands.some((i) => run.bird.x > i.lipX && run.bird.x < i.landingX && !run.bird.grounded),
 };

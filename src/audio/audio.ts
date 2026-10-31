@@ -24,6 +24,7 @@ export class Audio {
   private musicGain: GainNode | null = null;
   private tier = 0;
   private running = true;
+  private jumping = false; // scripted island jump in progress (the apex sting replaces the fanfare)
 
   constructor(bus: GameBus) {
     bus.on('land', (e) => {
@@ -37,7 +38,15 @@ export class Audio {
     bus.on('feverEnd', () => this.feverEnd());
     bus.on('coin', (e) => (e.type === 'blue' ? this.whoosh() : this.blip(e.chain)));
     bus.on('skyTouch', () => this.airBell());
-    bus.on('island', () => this.fanfare());
+    bus.on('island', () => !this.jumping && this.fanfare());
+    bus.on('islandLaunch', (e) => {
+      this.jumping = true;
+      this.launch(e.duration * ((e.apexX - e.x) / Math.max(1, e.targetX - e.x)));
+    });
+    bus.on('islandLand', () => {
+      this.jumping = false;
+      this.landChord();
+    });
     bus.on('caught', () => this.nightfall());
     bus.on('speedTier', (e) => (this.tier = e.tier));
   }
@@ -76,15 +85,17 @@ export class Audio {
     else void this.ctx.suspend().catch(() => undefined);
   }
 
-  /** Per frame: wind + music follow the speed. live = being played. */
-  frame(speed: number, diving: boolean, live: boolean): void {
+  /** Per frame: wind + music follow the speed. live = being played; flight = island-jump shot 0..1. */
+  frame(speed: number, diving: boolean, live: boolean, flight = 0): void {
     const ctx = this.ctx;
     if (!ctx) return;
     const A = CONFIG.audio, t = ctx.currentTime;
     const k = live ? Math.min(1, speed / A.windFullSpeed) : 0;
+    const f = live ? flight : 0;
     const g = A.wind * Math.pow(k, 1.3) * (diving ? A.windDive : 1);
-    this.windGain.gain.setTargetAtTime(g, t, 0.12);
-    this.windFilter.frequency.setTargetAtTime(A.windCut0 + (A.windCut1 - A.windCut0) * k * (diving ? 1.25 : 1), t, 0.12);
+    this.windGain.gain.setTargetAtTime(g + (A.flightWind - g) * f, t, 0.12);
+    const cut = A.windCut0 + (A.windCut1 - A.windCut0) * k * (diving ? 1.25 : 1);
+    this.windFilter.frequency.setTargetAtTime(cut + (A.flightWindCut - cut) * f, t, 0.12);
     if (this.musicFilter && this.musicGain) {
       this.musicFilter.frequency.setTargetAtTime(A.musicCut[Math.min(this.tier, A.musicCut.length - 1)], t, 0.4);
       this.musicGain.gain.setTargetAtTime(live ? A.music : A.music * 0.5, t, 0.5);
@@ -256,6 +267,54 @@ export class Audio {
       this.tone('square', f, f, t + i * 0.13, 0.05, 0.01, d * 0.8);
     });
     this.tone('triangle', 1046.5, 1046.5, t + 0.26, 0.1, 0.02, 0.8);
+  }
+
+  /** Island jump take-off: a whoosh that rises with the climb (rise = s to the apex). */
+  private launch(rise: number): void {
+    const ctx = this.ok();
+    if (!ctx) return;
+    const t = ctx.currentTime, d = Math.max(0.6, Math.min(2.5, rise));
+    this.noiseHit(t, 'bandpass', 300, 3600, 1.6, 0.5, 0.25, d);
+    this.tone('sine', 196, 784, t, 0.16, 0.2, d);
+    this.tone('triangle', 392, 1568, t + 0.05, 0.05, 0.25, d);
+  }
+
+  /** Apex of the island jump: a soaring chord (rolled, long tail). Called by main at the apex. */
+  sting(): void {
+    const ctx = this.ok();
+    if (!ctx) return;
+    const t = ctx.currentTime, a = CONFIG.audio.sting;
+    // Cmaj9 rolled upward + a soft detuned pad
+    [523.25, 659.25, 783.99, 987.77, 1174.66].forEach((f, i) => {
+      this.tone('triangle', f, f, t + i * 0.07, a, 0.02, 1.6);
+      this.tone('sine', f * 2, f * 2, t + i * 0.07, a * 0.3, 0.01, 0.8);
+    });
+    for (const [f, dt] of [[261.63, -6], [392, 6]] as const) {
+      const ctx2 = this.ctx!;
+      const o = ctx2.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = f;
+      o.detune.value = dt;
+      const lp = ctx2.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 1400;
+      o.connect(lp).connect(this.env(ctx2, t, a * 0.35, 0.35, 1.8));
+      o.start(t);
+      o.stop(t + 2.3);
+    }
+  }
+
+  /** Island touchdown: a bright, splashy major chord. */
+  private landChord(): void {
+    const ctx = this.ok();
+    if (!ctx) return;
+    const t = ctx.currentTime + 0.01, a = CONFIG.audio.landChord;
+    this.noiseHit(t, 'highpass', 5000, 9000, 0.6, 0.18, 0.004, 0.35);
+    [1046.5, 1318.5, 1568, 2093].forEach((f, i) => {
+      this.tone('sine', f, f, t + i * 0.025, a, 0.004, 1.1);
+      this.tone('sine', f * 2.76, f * 2.76, t + i * 0.025, a * 0.25, 0.002, 0.3);
+    });
+    this.tone('triangle', 523.25, 523.25, t, a * 0.6, 0.01, 0.9);
   }
 
   private nightfall(): void {

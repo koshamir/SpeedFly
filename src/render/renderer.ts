@@ -9,7 +9,7 @@ import { CoinsView } from './coinsView';
 import { DebugLines } from './debugLines';
 import { Fx } from './fx/fx';
 import { computeLayout, type Layout } from './layout';
-import { newSky, skyAt } from './palette';
+import { hexRgb, newSky, skyAt, type RGB } from './palette';
 import { Clouds, NightFront, Sky } from './sky';
 import { TerrainMesh } from './terrainMesh';
 import { Water } from './water';
@@ -47,6 +47,12 @@ export class Renderer {
   readonly fx: Fx;
   private lines: DebugLines | null = null;
   private readonly clear = new THREE.Color();
+  // island palette mood for the sky / parallax (crossfades over the sea)
+  private readonly islDark: RGB = [0, 0, 0];
+  private readonly islRim: RGB = [0, 0, 0];
+  private readonly pa: RGB = [0, 0, 0];
+  private readonly pb: RGB = [0, 0, 0];
+  private readonly pc: RGB = [0, 0, 0];
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -64,6 +70,9 @@ export class Renderer {
     bus.on('land', (e) => {
       if (e.kind === 'bad') this.rig.shake(CONFIG.camera.shakeBad);
     });
+    // island jump: the camera blends a flight shot over the normal rig
+    bus.on('islandLaunch', (e) => this.rig.flightStart(e));
+    bus.on('islandLand', () => this.rig.flightEnd());
   }
 
   setRun(run: Run): void {
@@ -79,6 +88,40 @@ export class Renderer {
       this.scene.add(this.lines.group);
     }
     this.snap = true;
+  }
+
+  /** Dark band + rim of the island palette under x; over the sea they crossfade to the next island's. */
+  private islandMood(x: number): void {
+    const w = this.run.world, P = CONFIG.palettes;
+    let a = w.islandAt(x).palette, b = a, f = 0;
+    const gap = w.waterAt(x);
+    if (gap) {
+      a = gap.palette;
+      b = w.islands[gap.k]?.palette ?? a; // islands[k - 1] is island k
+      const t = Math.min(1, Math.max(0, (x - gap.lipX) / Math.max(1, gap.landingX - gap.lipX)));
+      f = t * t * (3 - 2 * t);
+    }
+    this.darkest(P[a].bands, this.pa);
+    this.darkest(P[b].bands, this.pb);
+    for (let i = 0; i < 3; i++) this.islDark[i] = this.pa[i] + (this.pb[i] - this.pa[i]) * f;
+    hexRgb(P[a].rim, this.pa);
+    hexRgb(P[b].rim, this.pb);
+    for (let i = 0; i < 3; i++) this.islRim[i] = this.pa[i] + (this.pb[i] - this.pa[i]) * f;
+  }
+
+  private darkest(bands: string[], out: RGB): void {
+    let best = Infinity;
+    const c = this.pc;
+    for (const h of bands) {
+      hexRgb(h, c);
+      const l = 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2];
+      if (l < best) {
+        best = l;
+        out[0] = c[0];
+        out[1] = c[1];
+        out[2] = c[2];
+      }
+    }
   }
 
   /** Quality level (render/quality.ts): DPR cap, particle budget, grain. */
@@ -113,7 +156,7 @@ export class Renderer {
     this.cur.sample(b.grounded ? b.u : b.x);
     const d1 = this.cur.d1;
     const vx = b.grounded ? b.v / Math.hypot(1, d1) : b.vx;
-    this.rig.update(dt, cx, cy, run.speed, vx, this.cur, L.logW, L.logH, this.snap);
+    this.rig.update(dt, cx, cy, run.speed, vx, this.cur, L.logW, L.logH, this.snap, run.world.islands);
     this.snap = false;
     const r = this.rig, cam = this.camera;
     cam.left = -r.viewW / 2;
@@ -127,14 +170,15 @@ export class Renderer {
     const pxPerWorld = (L.gw * L.dpr) / r.viewW;
     const s = skyAt(run.daylight, this.skyState);
     const margin = CONFIG.render.meshStep * 4;
-    this.sky.update(s, L.gw / L.gh, this.time, r.cx, r.cy, r.z, L.logW, L.logH);
+    this.islandMood(cx);
+    this.sky.update(s, L.gw / L.gh, this.time, r.cx, r.cy, r.z, L.logW, L.logH, this.islDark, this.islRim);
     this.clouds.update(r.cx, r.cy, r.z, r.viewW, r.viewH, L.logW, this.time, s);
     this.terrain.update(x0 - margin, x1 + margin, pxPerWorld, s.grade, this.teacher, this.grainK);
     this.water.update(run.world, x0, x1, this.time, pxPerWorld, s.grade, s.horizon);
-    this.coins.update(run.world, x0 - margin, x1 + margin, this.time, s.grade);
+    this.coins.update(run.world, x0 - margin, x1 + margin, this.time, s.grade, run.sky);
     this.bird.update(dt, run, cx, cy, d1, r.birdScale, asleep, s.grade);
-    this.fx.update(live || asleep ? dt : 0, cx, cy, r.birdScale, x0, r.cy - r.viewH / 2, r.z, L.logW, L.logH, s.grade, live);
-    this.night.update(x0, x1, run.night.x, L.gw / L.gh);
+    this.fx.update(live || asleep ? dt : 0, cx, cy, r.birdScale, x0, r.cy - r.viewH / 2, r.z, L.logW, L.logH, s.grade, live, r.cine);
+    this.night.update(x0, x1, run.night.x, L.gw / L.gh, r.cine * CONFIG.fx.glare * (1 - s.night), CONFIG.render.sunX, s.sunY, s.sun, this.time);
     // Fever: pulsing hue-cycling screen tint (edges weighted)
     const J = CONFIG.juice, tint = this.night.tint;
     this.feverK += ((run.fever && live ? 1 : 0) - this.feverK) * (1 - Math.exp(-dt * 4));

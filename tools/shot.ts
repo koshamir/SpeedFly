@@ -38,6 +38,41 @@ const SESSIONS: Session[] = [
     ],
   },
   {
+    // island jump choreography (seed 3: the first launch at ~21 s)
+    query: '?bot=1&seed=3',
+    shots: [
+      { name: '50-island1-hills', when: 'sd.run().t > 8 && sd.run().cx > 9000 && !sd.run().bird.grounded', timeout: 60000 },
+      { name: '40-descent', when: 'sd.run().world.islands[0].lipX - sd.run().cx < 2600 && sd.run().world.islands[0].lipX - sd.run().cx > 1900', timeout: 90000 },
+      { name: '41-ramp', when: 'sd.run().world.islands[0].lipX - sd.run().cx < 700 && sd.run().world.islands[0].lipX > sd.run().cx', timeout: 90000 },
+      { name: '42-launch', when: 'sd.jump().on && sd.run().t - sd.jump().t0 > 0.5', timeout: 90000 },
+      { name: '43-apex', when: 'sd.jump().on && sd.jump().apexDone', delay: 250, timeout: 90000 },
+      { name: '44-descent', when: 'sd.jump().on && sd.run().t - sd.jump().tApex > 1.0', timeout: 90000 },
+      { name: '45-landing', when: 'sd.jump().tLand > 0 && sd.run().t - sd.jump().tLand > 0.12', timeout: 90000 },
+      { name: '46-island2', when: 'sd.jump().tLand > 0 && sd.run().t - sd.jump().tLand > 2.5', timeout: 90000 },
+      { name: '51-island2-hills', when: 'sd.run().island === 2 && sd.run().cx > sd.run().world.islands[1].x0 + 9000', timeout: 120000 },
+      { name: '52-island3-hills', when: 'sd.run().island === 3 && sd.run().cx > sd.run().world.islands[2].x0 + 9000', timeout: 180000 },
+      { name: '53-island4-hills', when: 'sd.run().island === 4 && sd.run().cx > sd.run().world.islands[3].x0 + 9000', timeout: 240000 },
+    ],
+  },
+  {
+    // Tune: Physics tab with the predicted flight paths
+    query: '?tune=1&bot=1&seed=3',
+    init: "localStorage.setItem('sunsetdash.tuneTab', '0'); sessionStorage.setItem('sd.tuneOpen', '1');",
+    shots: [{ name: '30-tune-physics', when: "sd.state() === 'playing' && sd.run().t > 3 && !sd.run().bird.grounded && sd.run().bird.airT > 0.25", timeout: 60000 }],
+  },
+  {
+    // Tune: Hills tab scrolled to the island-style editor
+    query: '?tune=1&bot=1&seed=3',
+    init: "localStorage.setItem('sunsetdash.tuneTab', '1'); sessionStorage.setItem('sd.tuneOpen', '1');",
+    shots: [
+      {
+        name: '32-tune-styles',
+        when: "sd.state() === 'playing' && sd.run().t > 2 && !!document.querySelector('.tune-hstats')?.textContent && ((document.querySelectorAll('.tune-body')[0].scrollTop = 1e6), true)",
+        delay: 300,
+      },
+    ],
+  },
+  {
     query: '?bot=none&seed=3',
     shots: [
       { name: '11-golden', when: "sd.state() === 'playing' && sd.run().daylight < 0.62" , timeout: 90000 },
@@ -54,11 +89,6 @@ const SESSIONS: Session[] = [
       { name: '17-teacher-hold', when: "sd.state() === 'playing' && document.querySelector('.teacher.hold') && sd.run().t > 0.8" },
       { name: '18-teacher-let', when: "document.querySelector('.teacher.let, .teacher.soon') && sd.run().t > 1.5" },
     ],
-  },
-  {
-    // a late bot falls short of an island gap at ~21.6 s: splash FX
-    query: '?bot=1&botDelay=12&seed=5',
-    shots: [{ name: '15-splash', when: "sd.lastLand().kind === 'splash' && sd.run().t - sd.lastLand().t > 0.15", timeout: 120000 }],
   },
   {
     // the naive bot lands badly every few seconds

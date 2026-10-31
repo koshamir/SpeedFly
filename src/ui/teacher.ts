@@ -27,6 +27,8 @@ export class Teacher {
     this.enabled = !bot && load('taught') !== '1';
     this.root = el('div', 'teacher', parent);
     this.label = el('div', 'teach-label', this.root);
+    // the whole micro-loop in one line (the label above says what to do right now)
+    el('div', 'teach-sub', this.root, 'release on the uphill — fly — tap to land on a downhill');
     this.finger = el('div', 'teach-finger', this.root);
     this.finger.innerHTML = `<span class="teach-ring"></span>${FINGER}`;
   }

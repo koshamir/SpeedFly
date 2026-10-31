@@ -1,8 +1,8 @@
 # CLAUDE.md — project rules (Slapjam #2, theme: Speed)
 
 You are the lead developer. You are building a mobile portrait browser game in the spirit of Tiny Wings
-(sliding over hills, speed is earned through timing). Full spec: `SPEC.md`. Physics v2 (circle-center
-model) lives in `src/sim/bird.ts`; `reference/physics-sim.mjs` is the historical v1. If code and SPEC disagree, SPEC wins.
+(sliding over hills, speed is earned through timing). Full spec: `SPEC.md`. Physics v4 (circle-center
+model, ground/air gravity, soft limits; SPEC §3) lives in `src/sim/bird.ts`; `reference/physics-sim.mjs` is the historical v1. If code and SPEC disagree, SPEC wins.
 The user writes in Russian — reply in Russian, short and to the point.
 
 ## Deadline
@@ -24,6 +24,9 @@ Never leave main unplayable for longer than one milestone.
 - `npm run shot` — playwright: 720×1280 @2x, `?bot=1&seed=3`, screenshots into `shots/`
 - `npm run feel` — feel metrics per physics preset + `tuning.json` (chatter, camera jerk, zoom, speeds, on-screen hill
   relief); guards must PASS. `FEEL_SET="islands.syStep=0.12" npm run feel -- tuning` tries values without saving
+- `npm run gameplay` — the micro-loop in numbers per skill bot (naive / p100 / p50 / pro, 180 s, seeds 3/9/21):
+  alive, island, speed p50/p90, apex, hills per flight, GREAT/GOOD/BAD, streak, Fever share.
+  `GP_SET="physics.vSoft=1800" npm run gameplay` tries values without saving
 - `npm run zip` — `release/game.zip` with `index.html` at the archive root
 
 ## Architecture rules

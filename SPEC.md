@@ -34,10 +34,26 @@ src/
 tools/  sim.ts (npm run sim) · shot.ts (npm run shot)
 ```
 Events: `takeoff`, `land{kind:'great'|'ok'|'bad'|'splash',angle,airTime,streak}`, `feverStart`,
-`feverEnd`, `skyTouch`, `coin{type}`, `island{index}`, `speedTier{tier}`, `caught`.
+`feverEnd`, `skyTouch`, `coin{type}`, `island{index}`, `speedTier{tier}`, `caught`, `points`,
+`islandLaunch{k,x,y,targetX,targetY,apexX,apexY,duration,speed}`, `islandLand{k,kind,x,y,speed}`.
 States: `Title → Playing ⇄ Paused → Caught (1.2 s) → Results → Playing` (restart ≤ 1 s).
 
-## 3. Physics v2 — `src/sim/bird.ts` (feel pass, 2026-10-30)
+## 3. Physics v4 — `src/sim/bird.ts` (gameplay v4, 2026-10-31)
+Same circle-center model as v2 (below). v4 knobs (preset `tw`, the default; all in `PHYSICS_PRESETS`):
+- **Ground vs air gravity.** `gRelease`/`gDive` act on the GROUND only (how hard slopes brake / pump);
+  `gAirRelease`/`gAirDive` in the AIR (how floaty a flight is / how fast a tap pulls down).
+  Keep `gAirRelease ≤ gRelease` (otherwise convex slopes chatter ground↔air; Tune shows a red warning).
+- **Parachute.** `fallCap`/`fallCapDive`: soft terminal FALL speed (released / held), pulled back with
+  `fallTau`. From high up the bird comes down at an angle that matches the slopes → catchable landings.
+- **Soft limits.** `vSoft`/`vSoftK`: extra drag `vSoftK·(v − vSoft)²` (ground + air) — no runaway speed.
+  `ceilAlt`/`ceilK`: while RISING above `peakY + ceilAlt`, extra downward accel `ceilK·(height above)`.
+- `assistAngle`: landing assist applies to downslope landings up to this angle.
+- Scripted island flight: `bird.flyG > 0` = exact parabola with that gravity, input ignored (§4.2).
+- tw: gGround 1050/3600, gAir 900/3400, fallCap 950/2000, vSoft 1700 (k 0.004), ceilAlt 950 (k 2.2),
+  muGround 0.012, drag 0.00002, diveRamp 0.03, greatAngle 20, okAngle 32, landingAssist 0.5, assist 60°.
+- Metrics: `npm run gameplay` (micro-loop per skill bot), `npm run feel` (guards), `npm run sim` (classic pins v2).
+
+### Physics v2 (feel pass, 2026-10-30)
 The bird is a **circle of radius R**; the physics state (x, y) is its **center = the sprite center**.
 On the ground the center rides the offset curve `C(u) = P(u) + R·n(u)` of the contact point u
 (center-path curvature `κc = κ/(1 − Rκ)`); in the air the center flies ballistically (exact step
@@ -85,15 +101,22 @@ Sprite rotation: target `atan2(vy, vx)` (on ground: tangent), smoothing τ = 0.0
 Water (§4.2): `muWater = 0.25`, `sMinWater = 120`, landing on water = `splash` (resets streak, no classification).
 
 ## 4. World
-### 4.0 Hill generator (island mode, v3: key points)
-Key points alternate PEAK / VALLEY with cosine interpolation between them (Tikhonov / haqu tiny-wings
+### 4.0 Hill generator (island mode, v4: key points, decoupled)
+Key points alternate PEAK / VALLEY with a shaped segment between them (Tikhonov / haqu tiny-wings
 principle). One hill = a valley then the next peak; `CONFIG.hills`, fixed 6 RNG draws per hill (stream alignment).
-- `mode 0` peaks (default): peaks at one level `peakY ± peakJitter`; each valley `depth·(1 ± depthJitter)` below
-  the lower neighbouring peak; `deepChance` valleys ×`deepMul` deeper, `wideChance` valleys ×`wideMul` wider;
-  `noRepeat` = never two special valleys in a row. Slope width `halfW·(1 ± halfWJitter)`, `symmetric` = one width per bowl.
+- Three INDEPENDENT numbers: `width` (peak→peak, the valley sits in the middle of a symmetric bowl),
+  `height` (peak→valley), `peakY` (peak level). The slope angle is a consequence (≈ atan(π·height/width));
+  nothing auto-widens (v3's "depth changes width" coupling is gone). `slopeLimit` only LOWERS an extreme valley.
+- `mode 0` peaks (default): peaks at `peakY ± peakJitter`; each valley `height·(1 ± heightJitter)` below the lower
+  neighbouring peak; `deepChance` ×`deepMul` deeper, `wideChance` ×`wideMul` wider; `noRepeat`.
 - `mode 1` zigzag (haqu): each key point = previous ∓ (`zzMinDY` + rand·`zzRangeDY`), clamped to [`zzMinY`, `zzMaxY`].
-- Depth/dy grow `growFrom → growTo` along the island; per-island scale `islands.sx*/sy*`; slopes widened to |h'| ≤ `maxSlope`.
-- Tuned live in the Tune panel's Hills tab (profile preview). `?terrain=reference` keeps v1.
+- Height grows `growFrom → growTo` along the island; per-island scale `islands.sx*/sy*`.
+- Per-segment sharpness q (`segEval`): q = 1 cosine; q > 1 pointier peaks + flatter valleys (still C1).
+- **Island styles** `islands.styles` cycle per island (island k = styles[(k−1) mod n]): rolling (q 1),
+  pointy (q 1.35, w 1.05, h 0.95), long (w 1.22, h 1.05), steep (q 1.2, w 0.95, h 1.12); w/h multiply width/height.
+  tuning.json merges them by `name`: `"islands": { "styles": [{ "name": "pointy", "sharp": 1.5 }] }`.
+- Tuned live in the Tune panel's Hills tab (strips per style, island end + jump parabolas, style editor).
+  `?terrain=reference` keeps v1.
 
 ### 4.1 Height function
 Key points alternate valley/peak; between them cosine interpolation
@@ -103,41 +126,74 @@ valley = dx·[0.35, 0.60]·sY, valleys at y ∈ [−60, 60], |h'| ≤ 1.0 (dx wi
 keep key points ≥ 3 screen widths ahead, drop those > 2 screens behind.
 `?terrain=reference` — plain reference generator without islands (for `npm run sim` acceptance).
 
-### 4.2 Islands
-| island k | hills | sX | sY | palette | bands |
-|---|---|---|---|---|---|
-| 1 | 16 | 1.00 | 1.00 | PALETTES[seed % 6] | strata |
-| k | min(16+4(k−1), 40) | min(1+0.06(k−1), 1.45) | min(1+0.08(k−1), 1.6) | next | alternate strata/diagonal |
+### 4.2 Islands (v4)
+| island k | hills | sX (width) | sY (height) | style | palette | bands |
+|---|---|---|---|---|---|---|
+| 1 | 24 | 1.00 | 1.00 | rolling | PALETTES[seed % 6] | strata |
+| k | min(24+6(k−1), 60) | min(1+0.05(k−1), 1.4) | min(1+0.06(k−1), 1.45) | styles[(k−1) % 4] | next | alternate |
 
 - Start: nest on a peak at x=0, y=200, bird asleep. The day starts on the first touch.
-- Island 1: first 3 hills are gentle (depth ×`onboardH`, no deep/wide valleys) for onboarding.
-- Island end: launch valley y=−120 (dx 420) → ramp up to the lip y=380 (dx 720) → cliff down to water
-  y=−220 (dx 260) → water (flat) → rise to a "landing hill" peak y=260 → downslope → new hills.
-- Gap placement from ballistics: launch from the lip at 32° with speed `vT(k) = min(950+110(k−1), 2000)`
-  under gRelease; R = horizontal distance where the trajectory crosses y = 260+60 on its descending branch.
-  Landing-hill peak = lip + R; rise `rise = max(420, 0.55·(R−260))`; water = `max(150, R−260−rise)`.
-  (k=1: R≈898, water≈218; k=4: R≈1563, water≈586.) Slower than vT → falls short into water — that is fine.
-- Passing the landing-hill peak fires `island{k+1}`.
+- Island 1: first 3 hills are gentle (height ×`onboardH`, no deep/wide valleys) for onboarding.
+- **Island end**: summit (`peakY + summitRise`, climb `summitW`) → one big descent (`descentDrop`) in
+  `bumps`+1 stretches of `descentSegW` with a bump (`bumpRise`/`bumpW`) between them → launch valley →
+  ramp (`rampDx`) → lip (`peakY + lipRise`) → cliff (`cliffDx`) → sea (`waterY`) → landing peak
+  (`peakY + landPeakRise`) → landing slope (`landW`, drop `landDrop`) → the next island's hills.
+- **Scripted island jump** (`src/sim/run.ts checkLaunch`): a takeoff in the upper ramp (after `launchZone` of it),
+  or reaching the lip (even crawling: the lip throws the bird), launches an EXACT parabola (`bird.flyG`) to a fixed
+  target on the next island's landing slope (`landAt` of it, lip + `flightDx(k)` = min(3300 + 250(k−1), 4600)).
+  Angle = max(`launchAngle` 48°, ramp slope + `launchClear`); speed clamped to [`vLaunchMin`, `vLaunchMax`]
+  = [1400, 2300] only changes the flight time (≈3–4.5 s), never the landing spot (the path shape depends only on
+  the launch point). Input is ignored; apex ≈ 900–1300 px above the lip; the landing is a GREAT.
+  Events `islandLaunch` (at takeoff) and `islandLand` (touchdown). Sky coins: `coins.skyCount` coins on the
+  parabola (`skyT0..skyT1` of the distance), picked by the flight itself (a rising blip chain).
+- Passing the landing-hill peak fires `island{k+1}` (the banner already showed at the apex).
 
-### 4.3 Collectibles
+### 4.3 Island-jump cinematic (render / audio / UI only, driven by the two events)
+- **Approach**: from `camera.approachDx` before the launch zone the normal zoom eases (by position, rate-limited
+  `approachRate`) toward ≈ the flight shot's zoom, so the launch itself only has a small step left.
+- **Flight shot**: on `islandLaunch` a framing of the box (bird … target, apex while climbing, the sea) is
+  blended in (smootherstep in log zoom, `flightIn` 0.6 s); it closes in as the bird travels; the last
+  `flightSettle` of the distance settles into the normal framing; on `islandLand` the blend hands back over
+  `flightOut` 1.0 s (0.8 s jerked: `npm run feel` camJ). The normal rig keeps running underneath. Guards PASS.
+- Slow-mo: time scale → `juice.slowMo` 0.8 for `slowMoTime` 0.6 s around the apex (eased `slowMoEase`), by sim
+  time; scales the fixed-step accumulator (`Loop.timeScale`) and the render dt, never the step dt.
+- FX: launch ring/sparks + dust off the lip, wind streaks along the flight, long wide ribbon trail, soft clouds
+  drifting in front near the apex, sun glare / god-rays (night overlay pass), sky + parallax lean to the island
+  palette (dark band / rim) and crossfade to the next island's over the sea, "ISLAND k" banner with style ·
+  palette at the apex, touchdown sparkles + dust + "PERFECT LANDING!" + `score.islandLanding`·k, 70 ms hit-stop.
+- Bird: wings fully spread glide pose, sparkle face; a back-flip at launch if speed ≥ `vLaunchMax`·0.9.
+- Audio: launch whoosh rising until the apex, wind loop opens up, soaring Cmaj9 sting at the apex (replaces the
+  island fanfare), bright splashy chord on touchdown.
+
+### 4.4 Collectibles
 - Gold coins: on 35% of hills an arc of 5–8 coins along the downslope, +45 px along the normal;
   in the launch valley and over the island ramp an arc of 12–16 coins.
 - Blue speed coin: 15% of valleys (not on the first 4 hills), +30 px above the bottom.
   Effect: speed ×1.12 (at least +120), flash + whoosh.
 - Pickup: distance from sprite center ≤ 34 px.
 
-### 4.4 Cloud ceiling
+### 4.5 Cloud ceiling
 World height `cloudY = 1100`. Bird center above it → `skyTouch` (once per flight). A row of clouds is drawn
 at that height in the world — the player sees the target when the camera zooms out.
 
 ## 5. Game systems
-- **Streak/Fever**: GREAT → streak+1; ok/bad/splash → streak=0. streak ≥ 3 → Fever (×2 to all points,
-  fire-rainbow trail, separate audio layer; does not change physics). Fever ends on the first non-GREAT landing.
+- **Landing judge (v4)**: only REAL flights are judged — air time ≥ `judgeMinAir` (0.25 s) OR height ≥
+  `judgeMinAlt` (40 px); shorter/lower = a silent skim (physics as usual, streak untouched, no popup).
+  Angle α = between the velocity and the slope at touchdown; downhill = h' ≤ `greatSlope`.
+  | kind | rule | streak / Fever | feedback |
+  |---|---|---|---|
+  | GREAT | downhill, α ≤ `greatAngle` (20°) | +1, boost ×`greatBoost` | "GREAT xN", bell, sparkles |
+  | GOOD (`ok`) | downhill α ≤ `okAngle` (32°), or uphill α ≤ greatAngle | kept | small "NICE", dots glint |
+  | BAD | anything else | 0, Fever ends | no text: thud, dots flash red + shake |
+  | SPLASH | water | 0, Fever ends | "SPLASH!" |
+  v3 judged 12.5° hard and broke the combo on every "almost" landing and on skims ("random" feeling).
+- **Streak/Fever**: streak ≥ 3 → Fever (×2 to all points, fire-rainbow trail, separate audio layer; does not
+  change physics). 3 HUD dots show the progress toward Fever.
 - **Night**: `xNight(t) = −2500 + 300t + 4t²` (t from the first touch). `gap = bird.x − xNight`,
   `daylight = clamp(gap/2500, 0, 1)` → time of day (§7.1). gap ≤ 0 → `caught` → bird falls asleep → Results.
   New island: xNight −= 1200 (pushes night back; our design choice, not a confirmed Tiny Wings rule).
 - **Score** (×2 in Fever): distance 1 pt/10 px · flight ≥ 1 s: 50·airTime · GREAT 100+20·(streak−1) (≤200) ·
-  skyTouch 300 · coin 20 · blue coin 50 · island 500·k. Best score in localStorage (try/catch).
+  skyTouch 300 · coin 20 · blue coin 50 · island 500·k · island landing 300·k. Best score in localStorage (try/catch).
 - **Speed tiers** (px/s → label): <700 —, ≥700 CRUISE, ≥1300 FAST, ≥1900 BLAZING, ≥2500 SONIC.
   The tier drives speed lines, trail, wind volume, speedometer color. First entry into SONIC per flight →
   "sonic boom": shockwave ring + 14 px shake + sound (3 s cooldown).
@@ -244,16 +300,19 @@ Music: optional `public/music.mp3` (loop), lowpass opens with speed tier. Mute b
 
 ## 9. Onboarding (Touch Teacher)
 Until the player lands 3 GREATs (flag in localStorage): downslope rims green with "HOLD", upslope rims
-amber with "LET GO", a pulsing ghost finger before entering a downslope. Fades out after 3 GREATs or at
-the end of island 1.
+amber with "LET GO", a pulsing ghost finger before entering a downslope; under the label the whole loop in one
+line: "release on the uphill — fly — tap to land on a downhill". Fades out after 3 GREATs or at the end of island 1.
 
 ## 10. Tools
 - `?debug=1`: lil-gui over the whole config (live edits + "Copy config JSON"), FPS, physics overlay
-- `?tune=1` (dev and prod): curated Tune drawer at the top — presets, A/B, key sliders, readout, Restart/New seed/
-  Copy JSON/Save. `tuning.json` = shipped values (dev Save → vite `/__tuning` → file → HMR in all tabs).
+- `?tune=1` (dev and prod): curated Tune drawer at the top — presets, A/B, grouped sliders with Russian hints,
+  readout (speed, slope under the bird, last landing kind/angle/slope), Restart/New seed/Copy JSON/Save.
+  Physics tab: predicted flight paths while airborne ("keep releasing" / "hold now", coloured by landing kind).
+  Hills tab: strips per island style, island end + jump parabolas, readouts, island-style editor.
+  `tuning.json` = shipped values (dev Save → vite `/__tuning` → file → HMR in all tabs). Help: TUNE-HELP.txt.
   (key points, normal, landing angle, speed, state, N).
 - `?bot=1` — planner autopilot from the reference. `?seed=N`. `?terrain=reference`.
-- `npm run sim` / `npm run shot` — see CLAUDE.md.
+- `npm run sim` / `npm run shot` / `npm run feel` / `npm run gameplay` — see CLAUDE.md.
 
 ## 11. Mobile compatibility and performance
 - `<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">`;

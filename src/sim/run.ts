@@ -37,6 +37,9 @@ export class Run {
   // debug
   lastKind = '';
   lastAngle = 0;
+  lastSlope = 0; // deg, the ground under the last judged touchdown (- = downhill)
+  // sky coins of the running island jump (along the exact parabola; separate from world.coins)
+  readonly sky = { n: 0, x: new Float64Array(32), y: new Float64Array(32), alive: new Uint8Array(32), arc: 0 };
 
   // reused event payloads (handlers copy what they keep)
   private readonly eTakeoff: GameEvents['takeoff'] = { x: 0, y: 0, gx: 0, gy: 0, speed: 0 };
@@ -174,7 +177,21 @@ export class Run {
     e.apexY = b.y + (vy * vy) / (2 * g);
     e.duration = D / vx;
     e.speed = sp;
+    this.skyCoins(b.x, b.y, vx, vy, g, D);
     this.bus.emit('islandLaunch', e);
+  }
+
+  /** A row of coins on the scripted parabola (the flight itself picks them up: a rising blip chain). */
+  private skyCoins(x0: number, y0: number, vx: number, vy: number, g: number, D: number): void {
+    const K = CONFIG.coins, s = this.sky, n = Math.min(K.skyCount, s.x.length);
+    s.n = n;
+    s.arc = -2 - this.launchIdx; // own chain id (world arcs are >= 0)
+    for (let i = 0; i < n; i++) {
+      const t = (D * (K.skyT0 + ((K.skyT1 - K.skyT0) * i) / Math.max(1, n - 1))) / vx;
+      s.x[i] = x0 + vx * t;
+      s.y[i] = y0 + vy * t - 0.5 * g * t * t;
+      s.alive[i] = 1;
+    }
   }
 
   private onLand(): void {
@@ -205,6 +222,7 @@ export class Run {
     e.y = this.cy;
     e.gx = b.u; // touchdown contact (bird.u)
     e.gy = this.cur.height(b.u);
+    this.lastSlope = (Math.atan(this.cur.d1) * 180) / Math.PI;
     e.speed = b.v;
     this.bus.emit('land', e);
     if (this.flightK > 0) {
@@ -215,7 +233,11 @@ export class Run {
       f.y = this.cy;
       f.speed = b.v;
       this.flightK = 0;
+      this.sky.n = 0;
       this.bus.emit('islandLand', f);
+      this.points(Scoring.landing(kind === 'great', b.evAirTime, b.streak));
+      this.points(CONFIG.score.islandLanding * f.k);
+      return;
     }
     this.points(Scoring.landing(kind === 'great', b.evAirTime, b.streak));
   }
@@ -268,6 +290,23 @@ export class Run {
       e.chain = this.chain;
       this.bus.emit('coin', e);
       this.score.add(blue ? CONFIG.score.blueCoin : CONFIG.score.coin, this.fever);
+    }
+    const s = this.sky;
+    for (let j = 0; j < s.n; j++) {
+      if (!s.alive[j]) continue;
+      const dx = s.x[j] - this.cx, dy = s.y[j] - this.cy;
+      if (dx * dx + dy * dy > r2) continue;
+      s.alive[j] = 0;
+      this.score.coins++;
+      this.chain = s.arc === this.lastArc ? this.chain + 1 : 1;
+      this.lastArc = s.arc;
+      const e = this.eCoin;
+      e.type = 'gold';
+      e.x = s.x[j];
+      e.y = s.y[j];
+      e.chain = this.chain;
+      this.bus.emit('coin', e);
+      this.score.add(CONFIG.score.coin, this.fever);
     }
   }
 

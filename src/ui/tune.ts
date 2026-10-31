@@ -1,16 +1,21 @@
 import { CONFIG, PHYSICS_PRESETS, type PresetName } from '../config';
 import { load, save } from '../core/storage';
 import type { Run } from '../sim/run';
+import type { TerrainCursor } from '../world/terrain';
 import {
   applyTuning, currentTuning, mergePhysics, physicsDiff, resetPhysics, tuningJson, type TuneSection, type Tuning,
 } from '../tuning';
 import { HillPreview } from './hillPreview';
+import { TrajPreview } from './trajectory';
 import { el } from './hud';
 
 // ?tune=1: the curated feel panel (dev AND production build). A drawer at the TOP of the screen
 // (the bottom 25% is the thumb zone); everything is [data-ui] so it never counts as a press.
 // Physics/camera sliders are live; hills/islands controls redraw the Hills tab profile preview while
 // dragging and restart the run with the same seed on release (unless "Preview only").
+// Physics tab: grouped (ground / air / limits / landing) with one-line hints, the predicted flight paths
+// (trajectory.ts) drawn over the game. Hills tab: profile preview with one strip per island style, the
+// island end with the jump parabolas, readouts, and an island-style editor (islands.styles by name).
 
 export interface TuneHost {
   run(): Run;
@@ -20,6 +25,8 @@ export interface TuneHost {
   randomSeed(): number;
   /** CONFIG changed from outside the lil-gui (?debug=1 refresh). */
   changed(): void;
+  /** World -> CSS px inside the game rect (trajectory preview). */
+  toScreen(x: number, y: number, out: { x: number; y: number }): void;
 }
 
 interface Slider {
@@ -30,19 +37,21 @@ interface Slider {
   max: number;
   step: number;
   toggle?: boolean; // 0/1 on/off switch instead of a range
+  style?: boolean; // islands.styles[i].key: path[1] = the style picked in the editor
   input?: HTMLInputElement;
   value?: HTMLSpanElement;
   sw?: HTMLButtonElement;
   row?: HTMLDivElement;
 }
 
-/** A labelled block of the Hills tab; `mode` = shown only in that hills.mode. */
+/** A labelled block of a tab; `mode` = shown only in that hills.mode. */
 interface Group {
   title: string;
   hint: string;
   mode?: number;
-  keys: string[]; // 'hills.halfW', 'islands.sxStep'
+  keys: string[]; // 'hills.width', 'islands.sxStep', 'physics.gDive'
   el?: HTMLDivElement;
+  warn?: HTMLDivElement;
 }
 
 type Obj = Record<string, unknown>;
@@ -58,20 +67,41 @@ const S = (section: TuneSection, key: string, min: number, max: number, step: nu
 });
 const SW = (section: TuneSection, key: string): Slider => ({ section, path: [key], label: key, min: 0, max: 1, step: 1, toggle: true });
 
-const HILL_GROUPS: Group[] = [
-  { title: 'Ритм', hint: 'расстояние вершина–вершина и насколько холмы одинаковые', keys: ['hills.width', 'hills.widthJitter'] },
-  { title: 'Вершины', hint: 'уровень гребней; разброс = непредсказуемые взлёты', mode: 0, keys: ['hills.peakY', 'hills.peakJitter'] },
+const PHYS_GROUPS: Group[] = [
   {
-    title: 'Впадины', hint: 'height = перепад вершина→впадина; ширину НЕ меняет', mode: 0,
-    keys: ['hills.height', 'hills.heightJitter', 'hills.deepChance', 'hills.deepMul', 'hills.wideChance', 'hills.wideMul', 'hills.noRepeat'],
+    title: 'Земля', hint: 'как склоны тормозят (up) и разгоняют (dive); трение и сопротивление',
+    keys: ['physics.gRelease', 'physics.gDive', 'physics.muGround', 'physics.drag', 'physics.takeoffMargin'],
   },
+  {
+    title: 'Воздух', hint: 'up = насколько парит; dive = как быстро тап тянет вниз; fallCap = «парашют»',
+    keys: ['physics.gAirRelease', 'physics.gAirDive', 'physics.diveRamp', 'physics.airLift', 'physics.fallCap', 'physics.fallCapDive'],
+  },
+  { title: 'Пределы', hint: 'мягкий потолок скорости (vSoft) и высоты (ceilAlt над вершинами)', keys: ['physics.vSoft', 'physics.vSoftK', 'physics.ceilAlt', 'physics.ceilK'] },
+  {
+    title: 'Посадка', hint: 'GREAT/GOOD по углу; короче judgeMinAir и ниже judgeMinAlt = не судится',
+    keys: ['physics.greatAngle', 'physics.okAngle', 'physics.greatSlope', 'physics.judgeMinAir', 'physics.judgeMinAlt', 'physics.greatBoost', 'physics.landingAssist', 'physics.assistAngle'],
+  },
+];
+
+const HILL_GROUPS: Group[] = [
+  {
+    title: 'Холмы', hint: 'width = вершина→вершина, height = вершина→впадина; угол склона ≈ atan(π·h/w)',
+    keys: ['hills.width', 'hills.widthJitter', 'hills.height', 'hills.heightJitter', 'hills.peakY', 'hills.peakJitter', 'hills.slopeLimit'],
+  },
+  { title: 'Особые впадины', hint: 'глубокие = сильнее насос; широкие = длиннее полёт', mode: 0, keys: ['hills.deepChance', 'hills.deepMul', 'hills.wideChance', 'hills.wideMul', 'hills.noRepeat'] },
   {
     title: 'Рост', hint: 'по острову (grow) и от острова к острову (isl.*)',
-    keys: ['hills.growFrom', 'hills.growTo', 'islands.sxStep', 'islands.sxMax', 'islands.syStep', 'islands.syMax', 'hills.slopeLimit'],
+    keys: ['hills.growFrom', 'hills.growTo', 'islands.sxStep', 'islands.sxMax', 'islands.syStep', 'islands.syMax'],
   },
   { title: 'Zigzag', hint: 'случайное блуждание вверх-вниз, вершины на разной высоте', mode: 1, keys: ['hills.zzMinDY', 'hills.zzRangeDY', 'hills.zzMinY', 'hills.zzMaxY'] },
-  { title: 'Остров', hint: 'длина острова и финальный спуск/трамплин', keys: ['islands.hillsBase', 'islands.hillsStep', 'islands.summitRise', 'islands.descentDrop', 'islands.bumps', 'islands.bumpRise', 'islands.rampDx', 'islands.lipRise'] },
-  { title: 'Прыжок', hint: 'скриптовый перелёт на следующий остров', keys: ['islands.launchAngle', 'islands.vLaunchMin', 'islands.vLaunchMax', 'islands.flightDx', 'islands.landAt'] },
+  {
+    title: 'Конец острова', hint: 'вершина → большой спуск с буграми → трамплин → край → море',
+    keys: ['islands.hillsBase', 'islands.hillsStep', 'islands.summitRise', 'islands.summitW', 'islands.descentDrop', 'islands.descentSegW', 'islands.bumps', 'islands.bumpRise', 'islands.bumpW', 'islands.rampDx', 'islands.lipRise', 'islands.cliffDx'],
+  },
+  {
+    title: 'Прыжок', hint: 'точная парабола до цели; скорость меняет только время полёта',
+    keys: ['islands.launchZone', 'islands.launchAngle', 'islands.vLaunchMin', 'islands.vLaunchMax', 'islands.flightDx', 'islands.flightDxStep', 'islands.landPeakRise', 'islands.landDrop', 'islands.landW', 'islands.landAt'],
+  },
 ];
 const isWorld = (s: Slider): boolean => s.section === 'hills' || s.section === 'islands';
 
@@ -81,6 +111,10 @@ function sliders(): Slider[] {
     S('physics', 'gDive', 1800, 5000, 25, 'gGround dive'),
     S('physics', 'gAirRelease', 400, 1600, 10, 'gAir up'),
     S('physics', 'gAirDive', 1500, 5000, 25, 'gAir dive'),
+    S('physics', 'greatSlope', -0.3, 0, 0.01),
+    S('physics', 'judgeMinAir', 0, 0.8, 0.01),
+    S('physics', 'judgeMinAlt', 0, 150, 1),
+    S('physics', 'assistAngle', 10, 80, 1),
     S('physics', 'diveRamp', 0, 0.15, 0.005),
     S('physics', 'airLift', 0, 0.4, 0.01),
     S('physics', 'fallCap', 400, 3000, 10),
@@ -123,16 +157,28 @@ function sliders(): Slider[] {
     S('islands', 'hillsBase', 6, 60, 1, 'isl.hills'),
     S('islands', 'hillsStep', 0, 12, 1, 'isl.hillsStep'),
     S('islands', 'summitRise', 0, 500, 5, 'isl.summit'),
+    S('islands', 'summitW', 200, 1200, 10, 'isl.summitW'),
     S('islands', 'descentDrop', 300, 1400, 10, 'isl.descent'),
+    S('islands', 'descentSegW', 300, 1200, 10, 'isl.descSegW'),
     S('islands', 'bumps', 0, 5, 1, 'isl.bumps'),
     S('islands', 'bumpRise', 0, 150, 1, 'isl.bumpRise'),
+    S('islands', 'bumpW', 80, 500, 5, 'isl.bumpW'),
     S('islands', 'rampDx', 600, 2000, 10, 'isl.rampDx'),
     S('islands', 'lipRise', 0, 500, 5, 'isl.lipRise'),
+    S('islands', 'cliffDx', 150, 700, 5, 'isl.cliffDx'),
+    S('islands', 'launchZone', 0.3, 0.98, 0.01, 'jump.zone'),
     S('islands', 'launchAngle', 30, 65, 0.5, 'jump.angle'),
     S('islands', 'vLaunchMin', 800, 2500, 10, 'jump.vMin'),
     S('islands', 'vLaunchMax', 1200, 3500, 10, 'jump.vMax'),
     S('islands', 'flightDx', 1500, 6000, 10, 'jump.dx'),
+    S('islands', 'flightDxStep', 0, 600, 10, 'jump.dxStep'),
+    S('islands', 'landPeakRise', 0, 600, 5, 'jump.landPeak'),
+    S('islands', 'landDrop', 200, 900, 5, 'jump.landDrop'),
+    S('islands', 'landW', 500, 1600, 10, 'jump.landW'),
     S('islands', 'landAt', 0.2, 0.8, 0.01, 'jump.landAt'),
+    { section: 'islands', path: ['styles', '0', 'sharp'], label: 'style.sharp', min: 1, max: 2.2, step: 0.01, style: true },
+    { section: 'islands', path: ['styles', '0', 'w'], label: 'style.w', min: 0.6, max: 1.6, step: 0.01, style: true },
+    { section: 'islands', path: ['styles', '0', 'h'], label: 'style.h', min: 0.6, max: 1.6, step: 0.01, style: true },
     S('camera', 'wX', 0, 12, 0.1),
     S('camera', 'wY', 0.5, 12, 0.1),
     S('camera', 'wZoomOut', 0.5, 12, 0.1),
@@ -153,12 +199,24 @@ function target(s: Slider): [Obj, string] {
 
 /** Is this slider's value in the tuning diff (i.e. changed vs preset/defaults)? */
 function inDiff(t: Tuning, s: Slider): boolean {
+  if (s.style) return styleDiff(t, s)?.[s.path[2]] !== undefined;
   let o: unknown = t[s.section];
   for (const k of s.path) o = (o as Obj | undefined)?.[k];
   return o !== undefined;
 }
 
+/** The diff entry (by name) of the style a style slider points at. */
+function styleDiff(t: Tuning, s: Slider): Obj | undefined {
+  const name = CONFIG.islands.styles[Number(s.path[1])]?.name;
+  return (t.islands.styles as Obj[] | undefined)?.find((x) => x.name === name);
+}
+
 function dropFromDiff(t: Tuning, s: Slider): void {
+  if (s.style) {
+    const d = styleDiff(t, s);
+    if (d) delete d[s.path[2]];
+    return;
+  }
   const stack: Obj[] = [t[s.section]];
   for (const k of s.path.slice(0, -1)) stack.push(stack[stack.length - 1][k] as Obj);
   delete stack[stack.length - 1][s.path[s.path.length - 1]];
@@ -187,6 +245,11 @@ export class TunePanel {
   private readonly lists: HTMLDivElement[] = [];
   private readonly sliders = sliders();
   private readonly groups = HILL_GROUPS.map((g) => ({ ...g }));
+  private readonly physGroups = PHYS_GROUPS.map((g) => ({ ...g }));
+  private readonly styleChips: HTMLButtonElement[] = [];
+  private styleIdx = 0;
+  private readonly traj: TrajPreview;
+  private trajBtn!: HTMLButtonElement;
   private readonly modeChips: HTMLButtonElement[] = [];
   private previewBtn!: HTMLButtonElement;
   private preview!: HillPreview;
@@ -195,6 +258,7 @@ export class TunePanel {
   private open = false;
   private tabIdx = 0;
   private readT = 0;
+  private rc: { run: Run; cur: TerrainCursor } | null = null;
   private ab: AB;
 
   constructor(
@@ -244,12 +308,16 @@ export class TunePanel {
       const list = el('div', 'tune-list', body);
       this.lists.push(list);
       if (name === 'Hills') this.buildHills(list);
+      else if (name === 'Physics') this.buildPhysics(list);
       else for (const s of this.sliders) if (secs.includes(s.section)) this.addSlider(list, s);
     }
     this.status = el('div', 'tune-status', body);
     this.json = el('textarea', 'tune-json', body);
     this.json.readOnly = true;
     this.json.rows = 8;
+    this.traj = new TrajPreview(parent, (x, y, out) => this.host.toScreen(x, y, out));
+    this.traj.on = load('tuneTraj') !== '0';
+    this.trajBtn.classList.toggle('on', this.traj.on);
 
     // A/B: the active slot is whatever tuning.json booted with; the other one is remembered per device
     let stored: AB | null = null;
@@ -275,7 +343,70 @@ export class TunePanel {
     this.sync();
   }
 
-  /** Hills tab: sticky profile preview + stats, mode chips, labelled blocks. */
+  /** A labelled block: title, hint, an optional warning line, its sliders. */
+  private buildGroup(list: HTMLDivElement, g: Group): void {
+    const box = (g.el = el('div', 'tune-group', list));
+    const head = el('div', 'tune-ghead', box);
+    el('b', '', head, g.title);
+    el('span', '', head, g.hint);
+    g.warn = el('div', 'tune-warn hidden', box);
+    for (const key of g.keys) {
+      const [sec, k] = key.split('.');
+      const s = this.sliders.find((x) => x.section === sec && x.path[0] === k && !x.style);
+      if (s) this.addSlider(box, s);
+    }
+  }
+
+  /** Physics tab: trajectory toggle, grouped sliders with hints. */
+  private buildPhysics(list: HTMLDivElement): void {
+    const row = el('div', 'tune-row', list);
+    this.trajBtn = el('button', 'tune-chip', row, 'Траектории');
+    this.trajBtn.addEventListener('click', () => {
+      this.traj.on = !this.traj.on;
+      save('tuneTraj', this.traj.on ? '1' : '0');
+      this.trajBtn.classList.toggle('on', this.traj.on);
+      this.say(this.traj.on ? 'в полёте: пунктир = отпустить, штрих = держать; цвет = GREAT/GOOD/BAD' : 'траектории скрыты');
+    });
+    el('span', 'tune-note', row, 'пунктир: отпустить · штрих: держать');
+    for (const g of this.physGroups) this.buildGroup(list, g);
+  }
+
+  /** Air gravity above ground gravity re-creates the ground/air chatter: red label + a warning line. */
+  private physWarn(): void {
+    const P = CONFIG.physics, bad = P.gAirRelease > P.gRelease;
+    const s = this.sliders.find((x) => x.path[0] === 'gAirRelease');
+    s?.row?.classList.toggle('warn', bad);
+    const w = this.physGroups[1].warn!;
+    w.classList.toggle('hidden', !bad);
+    w.textContent = bad ? `⚠ gAir up (${P.gAirRelease}) > gGround up (${P.gRelease}): птица будет дребезжать земля↔воздух` : '';
+  }
+
+  /** Island styles: pick 0-3, edit sharp / w / h of that style (tuning.json merges them by name). */
+  private buildStyles(list: HTMLDivElement): void {
+    const box = el('div', 'tune-group', list);
+    const head = el('div', 'tune-ghead', box);
+    el('b', '', head, 'Стили островов');
+    el('span', '', head, 'остров k = стиль (k−1) по кругу; sharp > 1 = острее вершины, площе впадины');
+    const row = el('div', 'tune-row', box);
+    CONFIG.islands.styles.forEach((st, i) => {
+      const b = el('button', 'tune-chip', row, `${i} ${st.name}`);
+      b.addEventListener('click', () => this.pickStyle(i));
+      this.styleChips.push(b);
+    });
+    for (const s of this.sliders) if (s.style) this.addSlider(box, s);
+  }
+
+  private pickStyle(i: number): void {
+    this.styleIdx = Math.max(0, Math.min(CONFIG.islands.styles.length - 1, i));
+    for (const s of this.sliders) if (s.style) s.path[1] = String(this.styleIdx);
+    this.styleChips.forEach((b, j) => b.classList.toggle('on', j === this.styleIdx));
+    this.preview.style = this.styleIdx;
+    for (const s of this.sliders) if (s.style) this.syncOne(s);
+    this.marks();
+    this.preview.request();
+  }
+
+  /** Hills tab: sticky profile preview + stats, mode chips, labelled blocks, style editor. */
   private buildHills(list: HTMLDivElement): void {
     const pv = el('div', 'tune-preview', list);
     const canvas = el('canvas', 'tune-canvas', pv);
@@ -289,17 +420,8 @@ export class TunePanel {
     this.previewBtn = el('button', 'tune-chip tune-pvonly', row, 'Preview only');
     this.previewBtn.addEventListener('click', () => this.setPreviewOnly(!this.previewOnly));
     el('button', 'tune-chip', row, 'Reset Hills').addEventListener('click', () => this.resetHills());
-    for (const g of this.groups) {
-      const box = (g.el = el('div', 'tune-group', list));
-      const head = el('div', 'tune-ghead', box);
-      el('b', '', head, g.title);
-      el('span', '', head, g.hint);
-      for (const key of g.keys) {
-        const [sec, k] = key.split('.');
-        const s = this.sliders.find((x) => x.section === sec && x.path[0] === k);
-        if (s) this.addSlider(box, s);
-      }
-    }
+    for (const g of this.groups) this.buildGroup(list, g);
+    this.buildStyles(list);
   }
 
   private addSlider(list: HTMLDivElement, s: Slider): void {
@@ -330,6 +452,7 @@ export class TunePanel {
       s.value!.textContent = fmt(o[k] as number, s.step);
       if (world) this.preview.request(); // live profile while dragging, no game restart
       else this.changed();
+      if (s.section === 'physics') this.physWarn();
     });
     input.addEventListener('change', () => {
       if (world) this.worldEdited();
@@ -379,6 +502,8 @@ export class TunePanel {
     for (const s of this.sliders) this.syncOne(s);
     this.syncHills();
     this.marks();
+    this.physWarn();
+    this.pickStyle(this.styleIdx);
   }
 
   private syncOne(s: Slider): void {
@@ -406,6 +531,8 @@ export class TunePanel {
     const t = currentTuning();
     for (const s of this.sliders) s.row!.classList.toggle('mod', inDiff(t, s));
     for (const [p, b] of this.chips) b.classList.toggle('on', p === CONFIG.physicsPreset);
+    const ts = t.islands.styles as Obj[] | undefined;
+    this.styleChips.forEach((c, i) => c.classList.toggle('mod', !!ts?.some((x) => x.name === CONFIG.islands.styles[i].name)));
     const [a, b] = this.ab.slots;
     this.abBtn.textContent = `A ${a.preset} ⇄ B ${b.preset}`;
     this.abBtn.dataset.active = this.ab.active ? 'B' : 'A';
@@ -494,14 +621,19 @@ export class TunePanel {
   }
 
   frame(dt: number): void {
+    this.traj.frame(this.host.run());
     this.readT -= dt;
     if (!this.open || this.readT > 0) return;
     this.readT = 0.1;
-    const r = this.host.run(), sp = r.speed;
+    const r = this.host.run(), sp = r.speed, b = r.bird;
+    if (this.rc?.run !== r) this.rc = { run: r, cur: r.world.terrain.cursor() };
+    this.rc.cur.sample(b.grounded ? b.u : b.x);
+    const slope = (Math.atan(this.rc.cur.d1) * 180) / Math.PI;
+    const kind = r.lastKind === 'ok' ? 'GOOD' : r.lastKind.toUpperCase();
     this.readout.textContent =
-      `${sp.toFixed(0)} px/s · ${(sp * CONFIG.speed.kmhPerPx).toFixed(0)} km/h · ${r.bird.grounded ? 'ground' : 'air'}\n` +
-      `last ${r.lastKind ? `${r.lastKind.toUpperCase()} ${r.lastAngle.toFixed(1)}°` : '—'} · streak ${r.bird.streak} · ` +
-      `island ${r.island} · zoom ${this.host.zoom().toFixed(2)} · seed ${r.seed}`;
+      `${sp.toFixed(0)} px/s · ${(sp * CONFIG.speed.kmhPerPx).toFixed(0)} km/h · ${b.grounded ? 'ground' : 'air'} · склон под птицей ${slope.toFixed(0)}°\n` +
+      `посадка: ${r.lastKind ? `${kind} угол ${r.lastAngle.toFixed(1)}° · склон ${r.lastSlope.toFixed(0)}°` : '—'} · streak ${b.streak}\n` +
+      `island ${r.island} · zoom ${this.host.zoom().toFixed(2)} · seed ${r.seed}${this.traj.on && !b.grounded ? ` · traj ${this.traj.ms.toFixed(1)} ms` : ''}`;
   }
 
   private say(msg: string): void {

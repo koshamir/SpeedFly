@@ -184,6 +184,11 @@ export const CONFIG = {
     blueSize: 36,
     spinRate: 3,
     capacity: 512,
+    // sky coins along the island-jump parabola (spawned at islandLaunch, picked by the flight itself)
+    skyCount: 14,
+    skyT0: 0.12, // share of the flight distance
+    skyT1: 0.88,
+    skySize: 64,
   },
 
   sky: {
@@ -236,6 +241,7 @@ export const CONFIG = {
     coin: 20,
     blueCoin: 50,
     islandPer: 500,
+    islandLanding: 300, // x k: the scripted island landing ("PERFECT LANDING")
     feverMul: 2,
     feverStreak: 3,
   },
@@ -275,6 +281,22 @@ export const CONFIG = {
     shakeBad: 10,
     shakeSonic: 14,
     shakeDecay: 0.25,
+    // island-jump "flight shot" (render only, driven by islandLaunch / islandLand)
+    flightIn: 0.6, // s: normal rig -> flight shot (smootherstep blend)
+    flightOut: 1.0, // s: flight shot -> normal rig after the touchdown (0.8 s jerks a bit: npm run feel camJ>2)
+    flightW: 6, // rad/s: spring of the flight framing
+    flightMarginL: 0.14, // share of the flight distance kept behind the bird
+    flightMarginR: 0.22, // share of the flight distance kept beyond the landing target
+    flightMarginTop: 260, // world px above the arc / the bird
+    flightMarginBottom: 300, // world px below the sea / the target
+    flightSettle: 0.4, // last share of the flight distance: the framing settles into the normal rig's
+    flightGround: 0.24, // the lowest framed point sits this share of the view above the bottom
+    flightZMin: 0.12,
+    flightBirdScale: 2.3, // bird visual scale cap during the flight shot (normal: birdScaleMax)
+    flightEdge: 0.08, // safety: the bird stays this share of the view inside the frame while blending
+    approachDx: 4500, // world px before the launch zone where the view starts widening toward the flight shot
+    approachK: 1.1, // ... down to the flight shot's launch zoom x this
+    approachRate: 0.75, // max widening speed of the approach (ln zoom per s)
   },
 
   // Automatic quality step-down (M5): one level down when frames average > slowFrame for slowFor s.
@@ -332,6 +354,8 @@ export const CONFIG = {
     seaBlend: 0.85, // share of the gap (lip -> landing peak) over which the island looks blend
     wetTint: 0.55,
     wetTintDepth: 260,
+    islandParallax: 0.32, // parallax layers lean toward the island palette's dark band
+    islandHorizon: 0.14, // the horizon leans toward the island palette's rim
     foam: 3,
     waveA: 3.5, // visual water surface waves (the physical surface stays flat)
     waveB: 2,
@@ -428,6 +452,9 @@ export const CONFIG = {
     scarfW1: 6,
     scarfOutline: 3,
     scarfGround: 6, // world px: scarf nodes stay this far above the ground
+    wingGlide: -0.8, // island jump: wings fully spread
+    glideFlap: 0.06,
+    glideFlapHz: 0.8,
   },
 
   // PNG overrides for rig parts: '' = procedural. Image framing = one atlas cell: the part's pivot at
@@ -465,6 +492,16 @@ export const CONFIG = {
     trailWidth: 22,
     trailAlpha: 0.85,
     vignette: 0.22,
+    // island jump
+    flightLineRate: 34, // wind streaks per second
+    flightTrailStep: 3.2, // trail point spacing x this during the flight (a long ribbon)
+    flightTrailWidth: 1.25,
+    launchSparks: 16,
+    launchDust: 10,
+    landSparks: 26,
+    flightClouds: 7, // cloud puffs passing in front at the apex
+    flightCloudAt: 0.3, // spawned this share of the climb before the apex
+    glare: 0.36, // sun glare / god-rays strength during the flight shot
   },
 
   // Touch Teacher (§9): until 3 GREATs (localStorage flag) or the end of island 1.
@@ -486,6 +523,13 @@ export const CONFIG = {
     scoreBump: 100, // a jump of at least this many points bumps the counter
     feverTint: 0.09, // screen tint amount in Fever (pulsing +-feverPulse)
     feverPulse: 0.05,
+    // island jump
+    slowMo: 0.8, // time scale at the apex (render + sim pacing; the fixed step never changes)
+    slowMoTime: 0.6, // s of sim time at full slow-mo, centred on the apex
+    slowMoEase: 0.25, // s eased in / out on each side
+    islandHitStop: 0.07, // s, render-only freeze on the island touchdown
+    tumbleSpeed: 0.9, // launch at >= vLaunchMax * this: a cosmetic back-flip
+    tumbleTime: 0.75,
   },
 
   // Audio (§8): gains 0..1, frequencies in Hz.
@@ -502,6 +546,10 @@ export const CONFIG = {
     shimmer: 0.045, // Fever loop level
     music: 0.45, // optional src/audio/music.mp3
     musicCut: [700, 1200, 2400, 6000, 18000], // music lowpass per speed tier
+    flightWind: 0.4, // wind loop during the island jump (opens up)
+    flightWindCut: 3400,
+    sting: 0.16, // soaring chord at the apex
+    landChord: 0.2, // bright chord on the island touchdown
   },
 
   debug: {

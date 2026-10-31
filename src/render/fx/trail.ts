@@ -16,6 +16,7 @@ export class Trail {
   private readonly u: Record<string, THREE.IUniform>;
   private alpha = 0;
   private rainbow = 0;
+  private wide = 1;
 
   constructor() {
     this.pos = new Float32Array(N * 2 * 3);
@@ -62,12 +63,13 @@ export class Trail {
     this.mesh.visible = false;
   }
 
-  /** on: trail wanted (BLAZING+ or Fever); rainbow: Fever look; scale: bird visual scale. */
-  update(dt: number, x: number, y: number, on: boolean, rainbow: boolean, scale: number, time: number): void {
-    const F = CONFIG.fx;
+  /** on: trail wanted (BLAZING+ or Fever); rainbow: Fever look; scale: bird visual scale; long: island jump (wide spacing). */
+  update(dt: number, x: number, y: number, on: boolean, rainbow: boolean, scale: number, time: number, long = false): void {
+    const F = CONFIG.fx, step = F.trailStep * scale * (long ? F.flightTrailStep : 1);
+    this.wide += ((long ? F.flightTrailWidth : 1) - this.wide) * (1 - Math.exp(-dt * 3));
     // record: a new point every trailStep px, else the head follows the bird
-    if (this.count === 0 || Math.hypot(x - this.hx[this.head], y - this.hy[this.head]) > F.trailStep * scale) {
-      if (this.count > 0 && Math.hypot(x - this.hx[this.head], y - this.hy[this.head]) > 600) this.count = 0;
+    if (this.count === 0 || Math.hypot(x - this.hx[this.head], y - this.hy[this.head]) > step) {
+      if (this.count > 0 && Math.hypot(x - this.hx[this.head], y - this.hy[this.head]) > Math.max(600, step * 3)) this.count = 0;
       this.head = (this.head + 1) % N;
       this.count = Math.min(N, this.count + 1);
     }
@@ -77,7 +79,7 @@ export class Trail {
     this.rainbow += ((rainbow ? 1 : 0) - this.rainbow) * (1 - Math.exp(-dt * 5));
     this.mesh.visible = this.alpha > 0.01 && this.count > 2;
     if (!this.mesh.visible) return;
-    const P = this.pos, w0 = F.trailWidth * scale * 0.5;
+    const P = this.pos, w0 = F.trailWidth * scale * 0.5 * this.wide;
     for (let i = 0; i < N; i++) {
       const k = Math.min(i, this.count - 1);
       const a = (this.head - k + N) % N, b = (this.head - Math.min(k + 1, this.count - 1) + N) % N, c = (this.head - Math.max(k - 1, 0) + N) % N;

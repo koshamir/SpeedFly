@@ -22,6 +22,7 @@ export class Sky {
   readonly mesh: THREE.Mesh;
   private readonly u: Record<string, THREE.IUniform>;
   private readonly tint: RGB = [0, 0, 0];
+  private readonly hz: RGB = [0, 0, 0];
   private readonly layerU: { l: THREE.Vector4; c: THREE.Color }[] = [];
 
   constructor() {
@@ -51,11 +52,14 @@ export class Sky {
     this.mesh = fullscreen(skyFrag, this.u, 0, false);
   }
 
-  update(s: SkyState, aspect: number, time: number, cx: number, cy: number, z: number, logW: number, logH: number): void {
-    const u = this.u, P = CONFIG.parallax;
+  /** isl / rim: the island palette's dark band and rim — the parallax and the horizon lean toward them. */
+  update(s: SkyState, aspect: number, time: number, cx: number, cy: number, z: number, logW: number, logH: number, isl: RGB, rim: RGB): void {
+    const u = this.u, P = CONFIG.parallax, R = CONFIG.render;
     (u.uTop.value as THREE.Color).setRGB(s.top[0], s.top[1], s.top[2]);
-    (u.uHorizon.value as THREE.Color).setRGB(s.horizon[0], s.horizon[1], s.horizon[2]);
-    (u.uFog.value as THREE.Color).setRGB(s.horizon[0], s.horizon[1], s.horizon[2]);
+    const hk = R.islandHorizon * (1 - 0.7 * s.night), hz = this.hz;
+    for (let i = 0; i < 3; i++) hz[i] = s.horizon[i] + (rim[i] * s.grade[i] - s.horizon[i]) * hk;
+    (u.uHorizon.value as THREE.Color).setRGB(hz[0], hz[1], hz[2]);
+    (u.uFog.value as THREE.Color).setRGB(hz[0], hz[1], hz[2]);
     (u.uSun.value as THREE.Color).setRGB(s.sun[0], s.sun[1], s.sun[2]);
     (u.uSunPos.value as THREE.Vector2).set(CONFIG.render.sunX, s.sunY);
     u.uSunR.value = CONFIG.render.sunSize * (s.night ? 0.8 : 1);
@@ -69,12 +73,9 @@ export class Sky {
     (u.uMist.value as THREE.Vector3).set(P.mistDepth, P.mist, P.ridgeLight);
     for (let i = 0; i < 3; i++) {
       const L = P.layers[i], U = this.layerU[i], t = hexRgb(L.tint, this.tint), f = L.strength;
+      for (let c = 0; c < 3; c++) t[c] += (isl[c] - t[c]) * R.islandParallax;
       U.l.set(L.px, L.k, L.base, L.amp);
-      U.c.setRGB(
-        s.horizon[0] + (t[0] * s.grade[0] - s.horizon[0]) * f,
-        s.horizon[1] + (t[1] * s.grade[1] - s.horizon[1]) * f,
-        s.horizon[2] + (t[2] * s.grade[2] - s.horizon[2]) * f,
-      );
+      U.c.setRGB(hz[0] + (t[0] * s.grade[0] - hz[0]) * f, hz[1] + (t[1] * s.grade[1] - hz[1]) * f, hz[2] + (t[2] * s.grade[2] - hz[2]) * f);
     }
   }
 }
@@ -99,6 +100,10 @@ export class NightFront {
       uVignette: { value: CONFIG.fx.vignette },
       uVigColor: { value: new THREE.Color(v[0], v[1], v[2]) },
       uTint: { value: this.tint },
+      uGlare: { value: 0 },
+      uSunPos: { value: new THREE.Vector2() },
+      uSunCol: { value: new THREE.Color() },
+      uTime: { value: 0 },
     };
     this.mesh = fullscreen(nightFrag, this.u, 8, true);
     const m = this.mesh.material as THREE.ShaderMaterial;
@@ -107,8 +112,13 @@ export class NightFront {
     m.blendDst = THREE.OneMinusSrcAlphaFactor;
   }
 
-  update(x0: number, x1: number, nightX: number, aspect: number): void {
+  /** glare: sun glare / god-rays amount (island-jump flight shot); sun position in screen uv. */
+  update(x0: number, x1: number, nightX: number, aspect: number, glare: number, sunX: number, sunY: number, sun: RGB, time: number): void {
     const N = CONFIG.night;
+    this.u.uGlare.value = glare;
+    (this.u.uSunPos.value as THREE.Vector2).set(sunX, sunY);
+    (this.u.uSunCol.value as THREE.Color).setRGB(sun[0], sun[1], sun[2]);
+    this.u.uTime.value = time;
     this.u.uLeft.value = x0;
     this.u.uRight.value = x1;
     this.u.uNightX.value = nightX;

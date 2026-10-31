@@ -5,6 +5,8 @@ export class Loop {
   /** Fixed steps run only while true (title/pause/results still render). */
   simulate = false;
   alpha = 1;
+  /** Pacing of the fixed steps (slow-mo < 1). Scales the accumulator only: the step dt never changes. */
+  timeScale = 1;
   private acc = 0;
   private last = -1;
   private raf = 0;
@@ -31,7 +33,7 @@ export class Loop {
     this.last = now;
     const DT = CONFIG.physics.dt;
     if (this.simulate) {
-      this.acc += dt;
+      this.acc += dt * this.timeScale;
       let n = 0;
       while (this.simulate && this.acc >= DT && n < CONFIG.loop.maxSteps) {
         this.onStep();

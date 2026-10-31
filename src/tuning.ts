@@ -3,6 +3,8 @@ import { applyPreset, CONFIG, PHYSICS_PRESETS, type PresetName } from './config'
 // tuning.json = the shipped tuning: a physics preset + overrides on top of the CONFIG defaults.
 //   { "preset": "smooth", "physics": {}, "hills": {}, "camera": {}, "islands": {} }
 // Each section object overrides numbers of CONFIG[section], e.g. "hills": { "depth": 190, "mode": 1 }.
+// Arrays of named objects (islands.styles) merge item by item, keyed by `name`:
+//   "islands": { "styles": [{ "name": "pointy", "sharp": 1.5 }] }
 // Unknown keys (e.g. the old hills.types) are ignored with a warning.
 // No DOM: used by main.ts (boot + HMR), the Tune panel, the vite /__tuning middleware and npm run feel.
 
@@ -49,11 +51,20 @@ function reset(dst: Obj, src: Obj): void {
   }
 }
 
+const named = (a: unknown[]): a is Obj[] => a.every((x) => isObj(x) && typeof x.name === 'string');
+
 function merge(dst: Obj, patch: Obj, path: string): void {
   for (const k of Object.keys(patch)) {
     const p = patch[k], d = dst[k], at = `${path}.${k}`;
+    if (k === 'name' && typeof d === 'string') continue; // the key of a named item
     if (typeof d === 'number' && typeof p === 'number' && Number.isFinite(p)) dst[k] = p;
     else if (isObj(d) && isObj(p)) merge(d, p, at);
+    else if (Array.isArray(d) && Array.isArray(p) && named(d) && named(p))
+      for (const item of p) {
+        const tgt = d.find((x) => x.name === item.name);
+        if (tgt) merge(tgt, item, `${at}[${String(item.name)}]`);
+        else console.warn(`tuning: ignored ${at}[${String(item.name)}] (unknown name)`);
+      }
     else console.warn(`tuning: ignored ${at} (unknown key or not a number)`);
   }
 }
@@ -83,6 +94,15 @@ function diff(cur: Obj, ref: Obj): Obj {
     } else if (isObj(c) && isObj(r)) {
       const d = diff(c, r);
       if (Object.keys(d).length) out[k] = d;
+    } else if (Array.isArray(c) && Array.isArray(r) && named(c) && named(r)) {
+      // named items: only the changed ones, with their name
+      const items: Obj[] = [];
+      for (const ci of c) {
+        const ri = r.find((x) => x.name === ci.name);
+        const d = ri ? diff(ci, ri) : {};
+        if (Object.keys(d).length) items.push({ name: ci.name, ...d });
+      }
+      if (items.length) out[k] = items;
     }
   }
   return out;

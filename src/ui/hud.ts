@@ -1,5 +1,6 @@
 import { CONFIG } from '../config';
 import type { Run } from '../sim/run';
+import type { LandKind } from '../core/events';
 import type { SkyState } from '../render/palette';
 
 export const TIER_LABELS = ['', 'CRUISE', 'FAST', 'BLAZING', 'SONIC'];
@@ -48,6 +49,16 @@ export class Hud {
     this.pause.setAttribute('aria-label', 'Pause');
     el('span', 'bar', this.pause);
     el('span', 'bar', this.pause);
+  }
+
+  /** Judged landing: GOOD visibly keeps the streak dots, BAD/SPLASH visibly resets lit ones. */
+  landed(kind: LandKind): void {
+    const lit = this.shown.streak > 0 || this.shown.fever;
+    const cls = kind === 'ok' && lit ? 'keep' : (kind === 'bad' || kind === 'splash') && lit ? 'reset' : '';
+    if (!cls) return;
+    this.dotsBox.classList.remove('keep', 'reset');
+    void this.dotsBox.offsetWidth; // restart the animation
+    this.dotsBox.classList.add(cls);
   }
 
   show(on: boolean): void {
