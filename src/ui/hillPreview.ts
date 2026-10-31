@@ -93,7 +93,7 @@ export class HillPreview {
     const ie0 = loc(e.hillK1) - 1;
     const arcs = [arc(cur, e, e.lipX, I.vLaunchMin, 'vMin, с края'), arc(cur, e, e.launchX0, I.vLaunchMax, 'vMax, с рампы')];
     const xEnd = e.targetX + I.landW * 0.6;
-    let yLo = I.waterY, yHi = -Infinity;
+    let yLo = e.surfaceY - 60, yHi = -Infinity;
     for (let i = ie0; i < T.n && kx[i] <= xEnd; i++) yHi = Math.max(yHi, ky[i]);
     for (const a of arcs) yHi = Math.max(yHi, a.y + a.apex);
     rows.push({ label: 'о.1 · конец + прыжок', x0: kx[ie0], x1: xEnd, yLo: yLo - 30, yHi: yHi + 40, style: -1 });
@@ -223,13 +223,16 @@ export class HillPreview {
 /** The scripted jump from launch contact x at speed sp — the same numbers as Run.checkLaunch. */
 function arc(cur: ReturnType<Terrain['cursor']>, isl: Island, ux: number, sp: number, label: string): Arc {
   const I = CONFIG.islands, R = CONFIG.physics.birdRadius;
+  cur.sample(isl.targetX);
+  const sT = cur.d1;
   cur.sample(ux);
   const Ln = Math.hypot(1, cur.d1);
   const x = ux - (R * cur.d1) / Ln, y = cur.y + R / Ln;
-  const th = Math.max(I.launchAngle, (Math.atan(cur.d1) * 180) / Math.PI + I.launchClear) * (Math.PI / 180);
+  const D = Math.max(300, isl.targetX - x), dy = isl.targetY + R - y;
+  const thMatch = (Math.atan((2 * dy) / D - sT) * 180) / Math.PI;
+  const th = Math.max(I.launchAngle, thMatch, (Math.atan(cur.d1) * 180) / Math.PI + I.launchClear) * (Math.PI / 180);
   const s = Math.min(I.vLaunchMax, Math.max(I.vLaunchMin, sp));
   const vx = s * Math.cos(th), vy = s * Math.sin(th);
-  const D = Math.max(300, isl.targetX - x), dy = isl.targetY + R - y;
   const gg = Math.max(150, (2 * vx * vx * (D * Math.tan(th) - dy)) / (D * D));
   return { x, y, th, k: gg / (2 * vx * vx), tx: x + D, t: D / vx, apex: (vy * vy) / (2 * gg), label };
 }

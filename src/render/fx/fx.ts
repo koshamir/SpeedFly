@@ -100,6 +100,13 @@ export class Fx {
     p.emit(Frame.Ring, e.x, e.y, 0, 0, 0.4, 30, 260, this.c.white, 0.9, 1, 0, 0, 0, 0, PF.Grow, 0.5);
   }
 
+  /** A bump on the mountain descent: a puff of rim-coloured dust. */
+  bumpDust(x: number, y: number): void {
+    const p = this.particles, col = this.rim(x);
+    for (let i = 0; i < CONFIG.fx.bumpDust; i++)
+      p.emit(Frame.Puff, x + rnd(-14, 14), y + 4, rnd(-260, -40), rnd(60, 200), rnd(0.35, 0.6), rnd(14, 22), rnd(40, 64), col, 0.85, 0, 200, 3, 0, 0, PF.Grow);
+  }
+
   /** Big soft clouds around the apex height, ahead of the bird: it flies through / behind them. */
   private apexClouds(bx: number): void {
     const p = this.particles, col = this.lit(this.c.white, 0.6);
@@ -215,7 +222,7 @@ export class Fx {
   }
 
   /** cine: 0..1 share of the island-jump flight shot on screen. */
-  update(dt: number, bx: number, by: number, scale: number, left: number, bottom: number, z: number, logW: number, logH: number, grade: RGB, playing: boolean, cine = 0): void {
+  update(dt: number, bx: number, by: number, scale: number, left: number, bottom: number, z: number, logW: number, logH: number, grade: RGB, playing: boolean, cine = 0, descent = 0): void {
     const F = CONFIG.fx, run = this.run;
     this.time += dt;
     this.grade[0] = grade[0];
@@ -223,12 +230,12 @@ export class Fx {
     this.grade[2] = grade[2];
     // screen-space speed lines from FAST, density grows with the tier
     const tier = playing ? run.tier : 0;
-    if (tier >= 2) {
-      this.lineAcc += dt * F.lineRate[tier - 2];
-      const a = F.lineAlpha * (0.7 + 0.3 * (tier - 2));
+    if (tier >= 2 || (playing && descent > 0)) {
+      this.lineAcc += dt * ((tier >= 2 ? F.lineRate[tier - 2] : 0) + F.descentLines * descent);
+      const a = F.lineAlpha * (0.7 + 0.3 * Math.max(0, tier - 2));
       while (this.lineAcc >= 1) {
         this.lineAcc -= 1;
-        const v = rnd(2200, 3400) * (1 + 0.15 * (tier - 2));
+        const v = rnd(2200, 3400) * (1 + 0.15 * Math.max(0, tier - 2));
         this.particles.emit(Frame.Streak, logW + rnd(0, 120), rnd(0.14, 0.86) * logH, -v, 0, rnd(0.25, 0.4), rnd(150, 300), 90, this.c.white, a, 0.4, 0, 0, Math.PI, 0, PF.Screen | PF.FadeIn, 0.09);
       }
     } else this.lineAcc = 0;

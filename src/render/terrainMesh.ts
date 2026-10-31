@@ -18,6 +18,7 @@ interface Chunk {
   isl2: Float32Array;
   mix: Float32Array;
   slope: Float32Array;
+  mtn: Float32Array; // mountain looks: snow cap, rock tone
   id: number; // chunk index (x / chunkWidth), NaN = free
 }
 
@@ -97,6 +98,7 @@ export class TerrainMesh {
       const isl2 = new Float32Array(n * 4);
       const mix = new Float32Array(n);
       const slope = new Float32Array(n);
+      const mtn = new Float32Array(n * 2);
       const g = new THREE.BufferGeometry();
       g.setIndex(index);
       g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -106,12 +108,13 @@ export class TerrainMesh {
       g.setAttribute('aIsl2', new THREE.BufferAttribute(isl2, 4));
       g.setAttribute('aMix', new THREE.BufferAttribute(mix, 1));
       g.setAttribute('aSlope', new THREE.BufferAttribute(slope, 1));
+      g.setAttribute('aMtn', new THREE.BufferAttribute(mtn, 2));
       const mesh = new THREE.Mesh(g, this.material);
       mesh.frustumCulled = false;
       mesh.visible = false;
       mesh.renderOrder = 3;
       this.group.add(mesh);
-      this.chunks.push({ mesh, pos, depth, isl, wet, isl2, mix, slope, id: NaN });
+      this.chunks.push({ mesh, pos, depth, isl, wet, isl2, mix, slope, mtn, id: NaN });
     }
   }
 
@@ -156,8 +159,16 @@ export class TerrainMesh {
     const R = CONFIG.render, W = R.chunkWidth, step = R.meshStep, bottom = R.meshBottom;
     for (let i = 0; i < this.cols; i++) {
       const x = id * W + i * step;
-      let y = this.cur.height(x);
+      // mountain descents carry small VISUAL bumps (the physics surface stays smooth)
+      let y = this.cur.height(x) + this.world.visualBump(x);
       let isl = this.world.islandAt(x);
+      // mountain looks: rock tone over the whole mountain, a snow cap on its top
+      let snow = 0, rock = 0;
+      if (x > isl.mtnX0 && x < isl.lipX) {
+        const I = CONFIG.islands;
+        rock = Math.min(1, (x - isl.mtnX0) / (0.5 * I.summitW), (isl.lipX - x) / (isl.lipX - isl.valleyX));
+        snow = Math.min(1, Math.max(0, (y - (isl.summitY - I.snowDrop)) / 80));
+      }
       let isl2 = isl, mix = 0;
       // water gaps: the seabed is drawn as a deep bowl below the physical (flat) water contact
       const sea = this.world.waterAt(x);
@@ -186,6 +197,8 @@ export class TerrainMesh {
       c.pos[b + 1] = bottom;
       c.wet[i * 2] = c.wet[i * 2 + 1] = wet;
       c.mix[i * 2] = c.mix[i * 2 + 1] = mix;
+      c.mtn[i * 4] = c.mtn[i * 4 + 2] = snow;
+      c.mtn[i * 4 + 1] = c.mtn[i * 4 + 3] = rock;
       // surface slope for the Touch Teacher rim (downhill = HOLD, uphill = LET GO)
       c.slope[i * 2] = c.slope[i * 2 + 1] = wet > 0 ? 0 : (this.cur.height(x + 2) - this.cur.height(x - 2)) / 4;
       c.depth[i * 2] = 0;
@@ -210,6 +223,7 @@ export class TerrainMesh {
     g.attributes.aIsl2.needsUpdate = true;
     g.attributes.aMix.needsUpdate = true;
     g.attributes.aSlope.needsUpdate = true;
+    g.attributes.aMtn.needsUpdate = true;
     c.id = id;
     c.mesh.visible = true;
   }

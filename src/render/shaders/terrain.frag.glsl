@@ -27,6 +27,7 @@ varying float vWet;
 varying vec4 vIsl2;
 varying float vMix;
 varying float vSlope;
+varying vec2 vMtn;
 
 vec3 pal(float i, int p) {
   return texelFetch(uPal, ivec2(min(int(i + 0.5), 4), p), 0).rgb;
@@ -63,6 +64,17 @@ void main() {
   if (vMix > 0.001) {
     col = mix(col, bands(vIsl2, d, aa), vMix);
     rim = mix(rim, texelFetch(uPal, ivec2(5, int(vIsl2.x + 0.5)), 0).rgb, vMix);
+  }
+  // mountain: cooler rock tone, a wobbly snow cap on the top and a white rim there
+  if (vMtn.y > 0.001) {
+    float l = dot(col, vec3(0.3, 0.59, 0.11));
+    col = mix(col, mix(vec3(l), col, 0.45) * vec3(0.92, 0.94, 1.02), 0.4 * vMtn.y);
+  }
+  if (vMtn.x > 0.001) {
+    float thick = 70.0 + 26.0 * sin(vX * 0.013) + 12.0 * sin(vX * 0.041);
+    float s = vMtn.x * (1.0 - smoothstep(thick - 4.0, thick + 4.0, d));
+    col = mix(col, vec3(0.95, 0.97, 1.0) * (1.0 - 0.06 * smoothstep(0.0, thick, d)), s);
+    rim = mix(rim, vec3(1.0), vMtn.x);
   }
   float rimW = max(uRimW, uRimMinPx * aa);
   if (uTeacher > 0.001) {

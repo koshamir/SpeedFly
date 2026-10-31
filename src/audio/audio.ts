@@ -304,6 +304,15 @@ export class Audio {
     }
   }
 
+  /** A visual bump on the mountain descent: a soft low thump. */
+  bump(): void {
+    const ctx = this.ok();
+    if (!ctx) return;
+    const t = ctx.currentTime, a = CONFIG.audio.bump;
+    this.tone('sine', 120, 70, t, a, 0.003, 0.12);
+    this.noiseHit(t, 'lowpass', 900, 250, 0.7, a * 0.5, 0.002, 0.08);
+  }
+
   /** Island touchdown: a bright, splashy major chord. */
   private landChord(): void {
     const ctx = this.ok();

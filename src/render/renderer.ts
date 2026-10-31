@@ -33,6 +33,9 @@ export class Renderer {
   /** Touch Teacher rim strength (set by main). */
   teacher = 0;
   private feverK = 0;
+  private prevBx = 0;
+  /** A visual bump was hit (main plays the sound). */
+  onBump: (() => void) | null = null;
   private dprCap = Infinity;
   private grainK = 1;
   private snap = true;
@@ -70,9 +73,7 @@ export class Renderer {
     bus.on('land', (e) => {
       if (e.kind === 'bad') this.rig.shake(CONFIG.camera.shakeBad);
     });
-    // island jump: the camera blends a flight shot over the normal rig
-    bus.on('islandLaunch', (e) => this.rig.flightStart(e));
-    bus.on('islandLand', () => this.rig.flightEnd());
+
   }
 
   setRun(run: Run): void {
@@ -124,6 +125,19 @@ export class Renderer {
     }
   }
 
+  /** Visual bumps on a mountain descent: a sprite kick, dust, a camera nudge and onBump (audio). */
+  private bumps(x: number, grounded: boolean): void {
+    if (!grounded || x <= this.prevBx) return;
+    const B = this.run.world.islandAt(x).bumps;
+    for (let i = 0; i < B.length; i++)
+      if (this.prevBx < B[i] && x >= B[i]) {
+        this.rig.shake(CONFIG.camera.bumpShake);
+        this.bird.kick();
+        this.fx.bumpDust(B[i], this.cur.height(B[i]) + CONFIG.islands.bumpH);
+        this.onBump?.();
+      }
+  }
+
   /** Quality level (render/quality.ts): DPR cap, particle budget, grain. */
   setQuality(dpr: number, particles: number, grain: number): void {
     this.dprCap = dpr;
@@ -158,6 +172,8 @@ export class Renderer {
     const vx = b.grounded ? b.v / Math.hypot(1, d1) : b.vx;
     this.rig.update(dt, cx, cy, run.speed, vx, this.cur, L.logW, L.logH, this.snap, run.world.islands);
     this.snap = false;
+    if (live) this.bumps(cx, b.grounded);
+    this.prevBx = cx;
     const r = this.rig, cam = this.camera;
     cam.left = -r.viewW / 2;
     cam.right = r.viewW / 2;
@@ -177,7 +193,7 @@ export class Renderer {
     this.water.update(run.world, x0, x1, this.time, pxPerWorld, s.grade, s.horizon);
     this.coins.update(run.world, x0 - margin, x1 + margin, this.time, s.grade, run.sky);
     this.bird.update(dt, run, cx, cy, d1, r.birdScale, asleep, s.grade);
-    this.fx.update(live || asleep ? dt : 0, cx, cy, r.birdScale, x0, r.cy - r.viewH / 2, r.z, L.logW, L.logH, s.grade, live, r.cine);
+    this.fx.update(live || asleep ? dt : 0, cx, cy, r.birdScale, x0, r.cy - r.viewH / 2, r.z, L.logW, L.logH, s.grade, live, r.cine, r.descent);
     this.night.update(x0, x1, run.night.x, L.gw / L.gh, r.cine * CONFIG.fx.glare * (1 - s.night), CONFIG.render.sunX, s.sunY, s.sun, this.time);
     // Fever: pulsing hue-cycling screen tint (edges weighted)
     const J = CONFIG.juice, tint = this.night.tint;

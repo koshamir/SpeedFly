@@ -331,6 +331,7 @@ function frame(dt: number, alpha: number): void {
 }
 
 const loop = new Loop(step, frame);
+renderer.onBump = () => audio.bump();
 renderer.fx.onSonic = () => {
   renderer.rig.shake(CONFIG.camera.shakeSonic);
   audio.boom();

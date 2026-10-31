@@ -40,7 +40,8 @@ function one(policy: BotPolicy, delay: number, seed: number) {
   const run = new Run(seed, 'islands', bus);
   const bot = new Bot(run.world.terrain, policy, delay);
   let great = 0, good = 0, bad = 0, splash = 0, streakMax = 0, launchT = 0;
-  const apex: number[] = [], hills: number[] = [], speeds: number[] = [];
+  const apex: number[] = [], hills: number[] = [], speeds: number[] = [], descents: number[] = [], flights: number[] = [];
+  let dIdx = 0, dT0 = -1, fT0 = -1, seqBad = 0;
   let skipNext = false;
   bus.on('islandLaunch', () => (launchT = run.t));
   bus.on('islandLand', () => (skipNext = true));
@@ -49,6 +50,23 @@ function one(policy: BotPolicy, delay: number, seed: number) {
     run.step(bot.tick(run.bird));
     const b = run.bird;
     if (i % 24 === 0) speeds.push(run.speed);
+    // mountain descent time (summit -> valley) and island flight time
+    const L = run.world.islands;
+    if (dIdx < L.length) {
+      const isl = L[dIdx];
+      if (dT0 < 0 && b.x >= isl.summitX) dT0 = run.t;
+      if (dT0 >= 0 && b.x >= isl.valleyX) {
+        descents.push(run.t - dT0);
+        dT0 = -1;
+        dIdx++;
+      }
+    }
+    if (run.flightK > 0 && fT0 < 0) fT0 = run.t;
+    if (run.flightK === 0 && fT0 >= 0) {
+      flights.push(run.t - fT0);
+      fT0 = -1;
+    }
+    if (b.ev === EV_LAND && run.inSequence && (b.evKind === 'bad' || b.evKind === 'splash')) seqBad++;
     if (b.ev === EV_LAND && skipNext) skipNext = false; // the scripted island landing is not the player's
     else if (b.ev === EV_LAND && run.t - launchT > 0.05) {
       if (b.evKind === 'great') great++;
@@ -65,7 +83,9 @@ function one(policy: BotPolicy, delay: number, seed: number) {
     t: run.t, island: run.island, v50: q(speeds, 0.5), v90: q(speeds, 0.9), vmax: q(speeds, 1),
     ap50: q(apex, 0.5), ap90: q(apex, 0.9), apmax: q(apex, 1), h50: q(hills, 0.5), h90: q(hills, 0.9),
     flights: apex.length / Math.max(1, run.t) * 10, great: great / n, good: good / n, bad: bad / n, streakMax,
-    fever: run.score.feverTime / Math.max(1, run.t),
+    fever: run.score.feverTime / Math.max(1, run.t), seqBad,
+    dMin: descents.length ? Math.min(...descents) : NaN, dMax: descents.length ? Math.max(...descents) : NaN,
+    fMin: flights.length ? Math.min(...flights) : NaN, fMax: flights.length ? Math.max(...flights) : NaN,
   };
 }
 
@@ -89,6 +109,9 @@ for (const [name, apply] of runs) {
       'GREAT/GOOD/BAD': `${Math.round(a('great') * 100)}/${Math.round(a('good') * 100)}/${Math.round(a('bad') * 100)}%`,
       'streak max': +a('streakMax').toFixed(1),
       'fever %': Math.round(a('fever') * 100),
+      'descent s': `${Math.min(...rs.map((r) => r.dMin)).toFixed(1)}–${Math.max(...rs.map((r) => r.dMax)).toFixed(1)}`,
+      'seq BAD': a('seqBad'),
+      'flight s': `${Math.min(...rs.map((r) => r.fMin)).toFixed(1)}–${Math.max(...rs.map((r) => r.fMax)).toFixed(1)}`,
     });
   }
 }

@@ -23,6 +23,7 @@ export class Bird {
   u = 0; // contact x on the surface (valid while grounded; the last contact guess in the air)
   dive = 0; // 0 = released ... 1 = diving (eases with diveRamp); gravities interpolate on it
   flyG = 0; // > 0: scripted island flight (pure ballistic with this gravity, input ignored) until touchdown
+  safe = false; // island-end sequence (set by Run): a landing there is never worse than GOOD
   v = 0; // speed along the center path (grounded)
   vx = 0;
   vy = 0;
@@ -224,6 +225,8 @@ export function step(b: Bird, held: boolean, H: TerrainCursor, T: Terrain, C: Ph
       b.streak++;
     } else if ((downhill && ang <= C.okAngle) || (!downhill && ang <= C.greatAngle)) {
       kind = 'ok'; // GOOD: the streak is kept (no +1)
+    } else if (b.safe) {
+      kind = 'ok'; // island-end sequence: the mountain never breaks the streak
     } else {
       kind = 'bad';
       b.streak = 0;

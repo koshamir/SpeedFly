@@ -95,12 +95,12 @@ const HILL_GROUPS: Group[] = [
   },
   { title: 'Zigzag', hint: 'случайное блуждание вверх-вниз, вершины на разной высоте', mode: 1, keys: ['hills.zzMinDY', 'hills.zzRangeDY', 'hills.zzMinY', 'hills.zzMaxY'] },
   {
-    title: 'Конец острова', hint: 'вершина → большой спуск с буграми → трамплин → край → море',
-    keys: ['islands.hillsBase', 'islands.hillsStep', 'islands.summitRise', 'islands.summitW', 'islands.descentDrop', 'islands.descentSegW', 'islands.bumps', 'islands.bumpRise', 'islands.bumpW', 'islands.rampDx', 'islands.lipRise', 'islands.cliffDx'],
+    title: 'Гора (конец острова)', hint: 'подъём → спуск ≈ time × speed px (цель 5–6 с) с визуальными буграми → трамплин → море; cam.* = зум на спуске и фокус на птице в полёте',
+    keys: ['islands.hillsBase', 'islands.hillsStep', 'islands.summitRise', 'islands.summitW', 'islands.descentTime', 'islands.descentSpeed', 'islands.descentDrop', 'islands.descentSharp', 'islands.bumps', 'islands.bumpH', 'islands.bumpW', 'islands.rampDx', 'islands.rampRise', 'islands.cliffDx', 'islands.seaBelowLip', 'islands.snowDrop', 'camera.descentZoom', 'camera.descentZoomIn', 'camera.flightZoom', 'camera.flightBirdY', 'camera.focusIn', 'camera.focusOutDx', 'camera.bumpShake'],
   },
   {
     title: 'Прыжок', hint: 'точная парабола до цели; скорость меняет только время полёта',
-    keys: ['islands.launchZone', 'islands.launchAngle', 'islands.vLaunchMin', 'islands.vLaunchMax', 'islands.flightDx', 'islands.flightDxStep', 'islands.landPeakRise', 'islands.landDrop', 'islands.landW', 'islands.landAt'],
+    keys: ['islands.launchZone', 'islands.launchAngle', 'islands.vLaunchMin', 'islands.vLaunchMax', 'islands.flightDx', 'islands.flightDxStep', 'islands.flightDxMax', 'islands.landRise', 'islands.landPeakRise', 'islands.landDrop', 'islands.landW', 'islands.landAt'],
   },
 ];
 const isWorld = (s: Slider): boolean => s.section === 'hills' || s.section === 'islands';
@@ -156,21 +156,34 @@ function sliders(): Slider[] {
     S('islands', 'syMax', 1, 2.2, 0.01, 'isl.syMax'),
     S('islands', 'hillsBase', 6, 60, 1, 'isl.hills'),
     S('islands', 'hillsStep', 0, 12, 1, 'isl.hillsStep'),
-    S('islands', 'summitRise', 0, 500, 5, 'isl.summit'),
+    S('islands', 'summitRise', 0, 600, 5, 'isl.summit'),
     S('islands', 'summitW', 200, 1200, 10, 'isl.summitW'),
-    S('islands', 'descentDrop', 300, 1400, 10, 'isl.descent'),
-    S('islands', 'descentSegW', 300, 1200, 10, 'isl.descSegW'),
-    S('islands', 'bumps', 0, 5, 1, 'isl.bumps'),
-    S('islands', 'bumpRise', 0, 150, 1, 'isl.bumpRise'),
-    S('islands', 'bumpW', 80, 500, 5, 'isl.bumpW'),
-    S('islands', 'rampDx', 600, 2000, 10, 'isl.rampDx'),
-    S('islands', 'lipRise', 0, 500, 5, 'isl.lipRise'),
+    S('islands', 'descentTime', 2, 8, 0.1, 'mtn.time s'),
+    S('islands', 'descentSpeed', 1200, 2800, 10, 'mtn.speed'),
+    S('islands', 'descentDrop', 600, 4000, 10, 'mtn.drop'),
+    S('islands', 'descentSharp', 1, 2.2, 0.01, 'mtn.sharp'),
+    S('islands', 'bumps', 0, 10, 1, 'mtn.bumps'),
+    S('islands', 'bumpH', 0, 30, 1, 'mtn.bumpH'),
+    S('islands', 'bumpW', 80, 600, 5, 'mtn.bumpW'),
+    S('islands', 'rampDx', 600, 2400, 10, 'isl.rampDx'),
+    S('islands', 'rampRise', 200, 1500, 10, 'isl.rampRise'),
     S('islands', 'cliffDx', 150, 700, 5, 'isl.cliffDx'),
+    S('islands', 'seaBelowLip', 100, 1200, 10, 'isl.seaBelow'),
+    S('islands', 'snowDrop', 0, 1500, 10, 'mtn.snow'),
+    S('camera', 'descentZoom', 1, 2.5, 0.01, 'cam.mtnZoom'),
+    S('camera', 'descentZoomIn', 0.05, 0.8, 0.01, 'cam.mtnZoomIn'),
+    S('camera', 'flightZoom', 0.25, 1, 0.01, 'cam.flyZoom'),
+    S('camera', 'flightBirdY', -0.3, 0.3, 0.01, 'cam.flyBirdY'),
+    S('camera', 'focusIn', 0.1, 1, 0.01, 'cam.focusIn'),
+    S('camera', 'focusOutDx', 300, 3000, 10, 'cam.focusOut'),
+    S('camera', 'bumpShake', 0, 15, 0.5, 'cam.bumpShake'),
     S('islands', 'launchZone', 0.3, 0.98, 0.01, 'jump.zone'),
     S('islands', 'launchAngle', 30, 65, 0.5, 'jump.angle'),
     S('islands', 'vLaunchMin', 800, 2500, 10, 'jump.vMin'),
     S('islands', 'vLaunchMax', 1200, 3500, 10, 'jump.vMax'),
     S('islands', 'flightDx', 1500, 6000, 10, 'jump.dx'),
+    S('islands', 'flightDxMax', 1500, 7000, 10, 'jump.dxMax'),
+    S('islands', 'landRise', 600, 3000, 10, 'jump.landRise'),
     S('islands', 'flightDxStep', 0, 600, 10, 'jump.dxStep'),
     S('islands', 'landPeakRise', 0, 600, 5, 'jump.landPeak'),
     S('islands', 'landDrop', 200, 900, 5, 'jump.landDrop'),
@@ -309,7 +322,7 @@ export class TunePanel {
       this.lists.push(list);
       if (name === 'Hills') this.buildHills(list);
       else if (name === 'Physics') this.buildPhysics(list);
-      else for (const s of this.sliders) if (secs.includes(s.section)) this.addSlider(list, s);
+      else for (const s of this.sliders) if (secs.includes(s.section) && !s.row) this.addSlider(list, s); // not twice
     }
     this.status = el('div', 'tune-status', body);
     this.json = el('textarea', 'tune-json', body);

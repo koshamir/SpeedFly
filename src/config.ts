@@ -93,33 +93,40 @@ export const CONFIG = {
     syMax: 1.45,
     onboardHills: 3, // first hills of island 1: no deep/wide valleys, height x onboardH
     onboardH: 0.7,
-    // island end: summit -> one big descent with bumps -> launch valley -> ramp -> lip -> cliff -> sea -> landing hill
-    summitRise: 180, // the last hill climbs this much above hills.peakY
-    summitW: 560, // width of the climb to the summit
-    descentDrop: 900, // summit -> launch valley
-    descentSegW: 600, // width of each descending stretch
-    bumps: 2, // bumps on the descent
-    bumpRise: 50, // height of a bump
-    bumpW: 200, // width of a bump's rise (its fall is part of the next stretch)
-    rampDx: 1150, // launch valley -> lip
-    lipRise: 200, // lip height above hills.peakY
-    cliffDx: 320,
-    waterY: -260,
-    waterSurface: 14, // visible water surface above waterY
+    // island end = a MOUNTAIN: climb to the summit -> one long descent (~5.5 s) with visual bumps ->
+    // valley -> tall ramp -> lip -> cliff -> sea -> landing slope of the next island (scripted flight)
+    summitRise: 220, // summit above hills.peakY
+    summitW: 2000, // width of the climb to the summit (wide: fast birds are not thrown off the top)
+    safeBefore: 1000, // the safe sequence (no BAD, night waits) starts this far before the summit
+    descentTime: 4.1, // s: the descent is descentTime x descentSpeed long ...
+    descentSpeed: 2000, // ... px/s (typical speed on it; bots of every skill should take 4.5-6.5 s)
+    descentDrop: 2300, // summit -> launch valley (max slope ~ atan(pi drop / 2 len))
+    descentSharp: 1.6, // > 1: steeper right below the summit (slow arrivals pick up speed sooner)
+    bumps: 4, // visual bumps on the descent (mesh + sprite kick + dust + sound; physics untouched)
+    bumpH: 9, // visual height of a bump
+    bumpW: 280, // visual width of a bump
+    bumpFrom: 0.2, // bumps spread over this share of the descent ...
+    bumpTo: 0.85,
+    rampDx: 1400, // launch valley -> lip
+    rampRise: 850, // lip above the launch valley
+    cliffDx: 360,
+    seaBelowLip: 520, // sea surface below the lip
+    waterSurface: 14, // visible water surface above the (flat) sea contact
+    snowDrop: 520, // snow cap: the top this many px of the mountain
     // scripted island flight (takeoff from the upper ramp / lip / cliff edge)
     launchZone: 0.7, // the flight script arms after this share of the ramp (its upper, convex part)
-    launchAngle: 48, // deg
+    launchAngle: 30, // deg, minimum (the angle is chosen so the arrival is tangent to the landing slope)
     launchClear: 10, // deg: the launch is always at least this much steeper than the ramp under the bird
     vLaunchMin: 1400, // slower birds are lifted to this launch speed
-    vLaunchMax: 2300, // faster ones are trimmed: speed only changes the flight TIME, never the landing spot
-    flightDx: 3300, // horizontal distance takeoff -> landing target on island k=1
-    flightDxStep: 250,
-    flightDxMax: 4600,
-    landRise: 640, // sea -> landing peak
+    vLaunchMax: 2300, // faster ones are trimmed: speed only changes the flight TIME (~3-5 s), never the landing spot
+    flightDx: 2800, // horizontal distance takeoff -> landing target on island k=1
+    flightDxStep: 150,
+    flightDxMax: 3600,
+    landRise: 1900, // sea -> landing peak (horizontal)
     landPeakRise: 260, // landing peak above hills.peakY
     landDrop: 520, // landing peak -> first valley of the new island
     landW: 900, // width of the landing slope
-    landAt: 0.5, // landing target: share of the landing slope (0.5 = steepest point)
+    landAt: 0.25, // landing target: share of the landing slope (gentler = flatter, shorter flight)
     bandWidthMin: 70,
     bandWidthMax: 110,
     paletteCount: 6,
@@ -281,22 +288,15 @@ export const CONFIG = {
     shakeBad: 10,
     shakeSonic: 14,
     shakeDecay: 0.25,
-    // island-jump "flight shot" (render only, driven by islandLaunch / islandLand)
-    flightIn: 0.6, // s: normal rig -> flight shot (smootherstep blend)
-    flightOut: 1.0, // s: flight shot -> normal rig after the touchdown (0.8 s jerks a bit: npm run feel camJ>2)
-    flightW: 6, // rad/s: spring of the flight framing
-    flightMarginL: 0.14, // share of the flight distance kept behind the bird
-    flightMarginR: 0.22, // share of the flight distance kept beyond the landing target
-    flightMarginTop: 260, // world px above the arc / the bird
-    flightMarginBottom: 300, // world px below the sea / the target
-    flightSettle: 0.4, // last share of the flight distance: the framing settles into the normal rig's
-    flightGround: 0.24, // the lowest framed point sits this share of the view above the bottom
-    flightZMin: 0.12,
-    flightBirdScale: 2.3, // bird visual scale cap during the flight shot (normal: birdScaleMax)
-    flightEdge: 0.08, // safety: the bird stays this share of the view inside the frame while blending
-    approachDx: 4500, // world px before the launch zone where the view starts widening toward the flight shot
-    approachK: 1.1, // ... down to the flight shot's launch zoom x this
-    approachRate: 0.75, // max widening speed of the approach (ln zoom per s)
+    // island-end sequence (render only, by the bird's position): zoom IN on the descent, follow the
+    // bird during the ramp + flight, back to the normal framing after the landing
+    descentZoom: 1.7, // normal zoom x this on the mountain descent (closer = more speed)
+    descentZoomIn: 0.25, // share of the descent over which it zooms in
+    flightZoom: 0.55, // zoom while following the bird on the ramp / in the flight
+    flightBirdY: 0.08, // bird above the view centre (share of the view height) in the flight
+    focusIn: 0.6, // share of the ramp over which the bird focus blends in
+    focusOutDx: 1400, // world px after the landing target to blend back to the normal rig
+    bumpShake: 4, // px of camera nudge on a bump
   },
 
   // Automatic quality step-down (M5): one level down when frames average > slowFrame for slowFor s.
@@ -501,7 +501,9 @@ export const CONFIG = {
     landSparks: 26,
     flightClouds: 7, // cloud puffs passing in front at the apex
     flightCloudAt: 0.3, // spawned this share of the climb before the apex
-    glare: 0.36, // sun glare / god-rays strength during the flight shot
+    glare: 0.3, // sun glare / god-rays strength during the island flight
+    descentLines: 26, // extra speed streaks per s on the mountain descent
+    bumpDust: 5,
   },
 
   // Touch Teacher (§9): until 3 GREATs (localStorage flag) or the end of island 1.
@@ -550,6 +552,7 @@ export const CONFIG = {
     flightWindCut: 3400,
     sting: 0.16, // soaring chord at the apex
     landChord: 0.2, // bright chord on the island touchdown
+    bump: 0.35, // bump thump on the descent
   },
 
   debug: {

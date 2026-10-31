@@ -54,6 +54,11 @@ export class Run {
   /** Island of the running scripted flight (0 = none). */
   flightK = 0;
   private launchIdx = 0;
+  private seqIdx = 0;
+  /** s the night stood still (island-end sequences: summit -> landing are always safe). */
+  nightPaused = 0;
+  /** True from the mountain summit until the island landing target. */
+  inSequence = false;
   private readonly eTier: GameEvents['speedTier'] = { tier: 0, prev: 0 };
   private readonly eCaught: GameEvents['caught'] = { x: 0 };
   private readonly ePoints: GameEvents['points'] = { amount: 0, x: 0, y: 0 };
@@ -89,6 +94,7 @@ export class Run {
     this.pcx = this.cx;
     this.pcy = this.cy;
     const x0 = b.x;
+    b.safe = this.inSequence;
     step(b, held, this.cur, this.world.terrain, P);
     this.t += P.dt;
     this.steps++;
@@ -108,7 +114,13 @@ export class Run {
     this.updateSpeed();
     if (this.steps % CONFIG.terrain.updateEvery === 0) this.world.update(b.x);
 
-    this.night.t = this.t;
+    // the island-end sequence (summit -> landing) is safe: the night waits
+    const L = this.world.islands;
+    while (this.seqIdx < L.length - 1 && L[this.seqIdx].targetX <= b.x) this.seqIdx++;
+    const sq = L[this.seqIdx];
+    this.inSequence = b.x >= sq.summitX - CONFIG.islands.safeBefore && b.x < sq.targetX;
+    if (this.inSequence) this.nightPaused += P.dt;
+    this.night.t = this.t - this.nightPaused;
     if (this.night.x >= b.x) {
       this.over = true;
       if (this.fever) this.endFever();
@@ -154,12 +166,16 @@ export class Run {
       b.fx = b.x;
     } else if (b.ev !== EV_TAKEOFF && b.x < isl.lipX) return;
     const I = CONFIG.islands;
+    const D = Math.max(300, isl.targetX - b.x), dy = isl.targetY + CONFIG.physics.birdRadius - b.y;
+    // arrive tangent to the landing slope: the parabola's end slope is 2 dy / D - tan(th) = slope there
+    this.cur.sample(isl.targetX);
+    const sT = this.cur.d1;
+    const thMatch = (Math.atan((2 * dy) / D - sT) * 180) / Math.PI;
     this.cur.sample(b.u);
     // never aim into the ramp: at least launchClear degrees above the local slope
-    const th = Math.max(I.launchAngle, (Math.atan(this.cur.d1) * 180) / Math.PI + I.launchClear) * (Math.PI / 180);
+    const th = Math.max(I.launchAngle, thMatch, (Math.atan(this.cur.d1) * 180) / Math.PI + I.launchClear) * (Math.PI / 180);
     const sp = Math.min(I.vLaunchMax, Math.max(I.vLaunchMin, Math.hypot(b.vx, b.vy)));
     const vx = sp * Math.cos(th), vy = sp * Math.sin(th);
-    const D = Math.max(300, isl.targetX - b.x), dy = isl.targetY + CONFIG.physics.birdRadius - b.y;
     // y(x) = tan(th) x - g x^2 / (2 vx^2) passes (D, dy)  ->  g = 2 vx^2 (D tan(th) - dy) / D^2
     const g = Math.max(150, (2 * vx * vx * (D * Math.tan(th) - dy)) / (D * D));
     b.vx = vx;

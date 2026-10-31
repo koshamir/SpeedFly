@@ -57,9 +57,6 @@ function one(policy: BotPolicy, delay: number, seed: number): Row {
   const run = new Run(seed, 'islands', bus);
   const bot = new Bot(run.world.terrain, policy, delay);
   const rig = new CameraRig();
-  // the island-jump flight shot is part of the camera the player sees
-  bus.on('islandLaunch', (e) => rig.flightStart(e));
-  bus.on('islandLand', () => rig.flightEnd());
   const cur = run.world.terrain.cursor();
   const rc = run.world.terrain.cursor();
   const relief: number[] = [], reliefLate: number[] = [];

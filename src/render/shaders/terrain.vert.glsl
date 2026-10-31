@@ -4,6 +4,7 @@ attribute float aWet;   // 1 = seabed under water
 attribute vec4 aIsl2;   // looks of the next island (water gaps)
 attribute float aMix;   // 0 = aIsl, 1 = aIsl2
 attribute float aSlope; // h'(x) of the surface
+attribute vec2 aMtn;    // mountain: snow cap, rock tone
 
 varying float vDepth;
 varying float vX;
@@ -12,6 +13,7 @@ varying float vWet;
 varying vec4 vIsl2;
 varying float vMix;
 varying float vSlope;
+varying vec2 vMtn;
 
 void main() {
   vDepth = aDepth;
@@ -21,5 +23,6 @@ void main() {
   vIsl2 = aIsl2;
   vMix = aMix;
   vSlope = aSlope;
+  vMtn = aMtn;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }

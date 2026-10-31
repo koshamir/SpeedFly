@@ -134,36 +134,25 @@ keep key points ≥ 3 screen widths ahead, drop those > 2 screens behind.
 
 - Start: nest on a peak at x=0, y=200, bird asleep. The day starts on the first touch.
 - Island 1: first 3 hills are gentle (height ×`onboardH`, no deep/wide valleys) for onboarding.
-- **Island end**: summit (`peakY + summitRise`, climb `summitW`) → one big descent (`descentDrop`) in
-  `bumps`+1 stretches of `descentSegW` with a bump (`bumpRise`/`bumpW`) between them → launch valley →
-  ramp (`rampDx`) → lip (`peakY + lipRise`) → cliff (`cliffDx`) → sea (`waterY`) → landing peak
-  (`peakY + landPeakRise`) → landing slope (`landW`, drop `landDrop`) → the next island's hills.
-- **Scripted island jump** (`src/sim/run.ts checkLaunch`): a takeoff in the upper ramp (after `launchZone` of it),
-  or reaching the lip (even crawling: the lip throws the bird), launches an EXACT parabola (`bird.flyG`) to a fixed
-  target on the next island's landing slope (`landAt` of it, lip + `flightDx(k)` = min(3300 + 250(k−1), 4600)).
-  Angle = max(`launchAngle` 48°, ramp slope + `launchClear`); speed clamped to [`vLaunchMin`, `vLaunchMax`]
-  = [1400, 2300] only changes the flight time (≈3–4.5 s), never the landing spot (the path shape depends only on
-  the launch point). Input is ignored; apex ≈ 900–1300 px above the lip; the landing is a GREAT.
-  Events `islandLaunch` (at takeoff) and `islandLand` (touchdown). Sky coins: `coins.skyCount` coins on the
-  parabola (`skyT0..skyT1` of the distance), picked by the flight itself (a rising blip chain).
+- **Island end = a mountain (v5)**: climb (, ) → one long smooth descent of
+  × px (drop , sharper below the summit ) — measured
+  4.2–6.4 s for every bot in  (column ) → launch valley → ramp (, ) →
+  lip → cliff → sea ( under the lip) → landing hill. Snow cap () and rock tone in the hill shader.
+  Bumps (, , ) are VISUAL only: a mesh mound + sprite squash kick + dust + camera nudge + thump.
+- **Safe sequence**: from  px before the summit to the landing target a landing is never worse than GOOD
+  () and the night stands still ().  in npm run gameplay = 0.
+- **Scripted island jump**: from the upper ramp or the lip an exact parabola () to the target on the
+  landing slope (); the launch angle is chosen so the arrival is TANGENT to the slope there (≥ ),
+  speed clamped to [, ] only changes the time: 3.8–4.9 s measured. Input ignored; GREAT landing.
+  Events  / ; sky coins along the parabola.
+- **Camera**: no wide shot. By position: zoom IN × on the descent (speed zoom only, view centred on the bird),
+  bird focus at  from the ramp through the flight, back to the normal rig over  after the target.
 - Passing the landing-hill peak fires `island{k+1}` (the banner already showed at the apex).
 
-### 4.3 Island-jump cinematic (render / audio / UI only, driven by the two events)
-- **Approach**: from `camera.approachDx` before the launch zone the normal zoom eases (by position, rate-limited
-  `approachRate`) toward ≈ the flight shot's zoom, so the launch itself only has a small step left.
-- **Flight shot**: on `islandLaunch` a framing of the box (bird … target, apex while climbing, the sea) is
-  blended in (smootherstep in log zoom, `flightIn` 0.6 s); it closes in as the bird travels; the last
-  `flightSettle` of the distance settles into the normal framing; on `islandLand` the blend hands back over
-  `flightOut` 1.0 s (0.8 s jerked: `npm run feel` camJ). The normal rig keeps running underneath. Guards PASS.
-- Slow-mo: time scale → `juice.slowMo` 0.8 for `slowMoTime` 0.6 s around the apex (eased `slowMoEase`), by sim
-  time; scales the fixed-step accumulator (`Loop.timeScale`) and the render dt, never the step dt.
-- FX: launch ring/sparks + dust off the lip, wind streaks along the flight, long wide ribbon trail, soft clouds
-  drifting in front near the apex, sun glare / god-rays (night overlay pass), sky + parallax lean to the island
-  palette (dark band / rim) and crossfade to the next island's over the sea, "ISLAND k" banner with style ·
-  palette at the apex, touchdown sparkles + dust + "PERFECT LANDING!" + `score.islandLanding`·k, 70 ms hit-stop.
-- Bird: wings fully spread glide pose, sparkle face; a back-flip at launch if speed ≥ `vLaunchMax`·0.9.
-- Audio: launch whoosh rising until the apex, wind loop opens up, soaring Cmaj9 sting at the apex (replaces the
-  island fanfare), bright splashy chord on touchdown.
+### 4.3 Island-end cinematic (render / audio / UI)
+Descent: speed streaks grow (), bump kicks. Launch: burst + dust off the lip, back-flip on fast launches.
+Flight: slow-mo 0.8 at the apex, wind streaks, long ribbon, apex clouds, sun glare, palette crossfade, ISLAND banner at the
+apex, whoosh/sting. Landing: sparkles, PERFECT LANDING + 300·k, hit-stop, chord.
 
 ### 4.4 Collectibles
 - Gold coins: on 35% of hills an arc of 5–8 coins along the downslope, +45 px along the normal;

@@ -43,6 +43,18 @@ export class World {
     return null;
   }
 
+  /** Visual bump height at x (mountain descents; render only — the physics surface stays smooth). */
+  visualBump(x: number): number {
+    const isl = this.islandAt(x), B = isl.bumps;
+    if (!B.length || x < isl.summitX || x > isl.valleyX) return 0;
+    const w = CONFIG.islands.bumpW;
+    for (let i = 0; i < B.length; i++) {
+      const t = (x - B[i]) / w + 0.5;
+      if (t > 0 && t < 1) return CONFIG.islands.bumpH * 0.5 * (1 - Math.cos(2 * Math.PI * t));
+    }
+    return 0;
+  }
+
   /** Island whose palette covers x (cached cursor; any query order works). */
   islandAt(x: number): Island {
     const L = this.islands;
