@@ -27,6 +27,8 @@ Never leave main unplayable for longer than one milestone.
 - `npm run gameplay` — the micro-loop in numbers per skill bot (naive / p100 / p50 / pro, 180 s, seeds 3/9/21):
   alive, island, speed p50/p90, apex, hills per flight, GREAT/GOOD/BAD, streak, Fever share.
   `GP_SET="physics.vSoft=1800" npm run gameplay` tries values without saving
+- `npm run race` — race check: every track × player bots, places/times (pro must win, naive must lose)
+- `PERF_RACE=1 npm run perf` — perf with 4 AI birds
 - `npm run zip` — `release/game.zip` with `index.html` at the archive root
 
 ## Architecture rules

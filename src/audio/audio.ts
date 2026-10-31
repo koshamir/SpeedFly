@@ -1,6 +1,7 @@
 import { CONFIG } from '../config';
 import type { GameBus } from '../core/events';
 import { load, save } from '../core/storage';
+import { Music } from './music';
 
 // WebAudio, all SFX synthesized (§8). Unlocked on the first press; master -> limiter -> out.
 // Subscribes to the bus only. Optional music: drop a loop at src/audio/music.mp3 (bundled when
@@ -22,6 +23,7 @@ export class Audio {
   private shimmer: { gain: GainNode; stop: () => void } | null = null;
   private musicFilter: BiquadFilterNode | null = null;
   private musicGain: GainNode | null = null;
+  private synth: Music | null = null; // generated soundtrack (when there is no music.mp3)
   private tier = 0;
   private running = true;
   private jumping = false; // scripted island jump in progress (the apex sting replaces the fanfare)
@@ -92,10 +94,12 @@ export class Audio {
     const A = CONFIG.audio, t = ctx.currentTime;
     const k = live ? Math.min(1, speed / A.windFullSpeed) : 0;
     const f = live ? flight : 0;
-    const g = A.wind * Math.pow(k, 1.3) * (diving ? A.windDive : 1);
-    this.windGain.gain.setTargetAtTime(g + (A.flightWind - g) * f, t, 0.12);
-    const cut = A.windCut0 + (A.windCut1 - A.windCut0) * k * (diving ? 1.25 : 1);
-    this.windFilter.frequency.setTargetAtTime(cut + (A.flightWindCut - cut) * f, t, 0.12);
+    // smooth, low wind: brown noise through a lowpass; slow time constants (no hiss spikes)
+    const g = A.wind * k * k * (diving ? A.windDive : 1);
+    this.windGain.gain.setTargetAtTime(g + (A.flightWind - g) * f, t, 0.35);
+    const cut = A.windCut0 + (A.windCut1 - A.windCut0) * k;
+    this.windFilter.frequency.setTargetAtTime(cut + (A.flightWindCut - cut) * f, t, 0.35);
+    this.synth?.set(live ? 1 : 0.55, Math.min(1, this.tier / 4));
     if (this.musicFilter && this.musicGain) {
       this.musicFilter.frequency.setTargetAtTime(A.musicCut[Math.min(this.tier, A.musicCut.length - 1)], t, 0.4);
       this.musicGain.gain.setTargetAtTime(live ? A.music : A.music * 0.5, t, 0.5);
@@ -114,26 +118,45 @@ export class Audio {
     this.master = ctx.createGain();
     this.master.gain.value = this.muted ? 0 : A.master;
     this.master.connect(limiter);
+    // SFX bus: gentle compressor so stacked chimes never spike
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -20;
+    comp.knee.value = 12;
+    comp.ratio.value = 4;
+    comp.attack.value = 0.003;
+    comp.release.value = 0.2;
+    comp.connect(this.master);
     this.sfx = ctx.createGain();
     this.sfx.gain.value = A.sfx;
-    this.sfx.connect(this.master);
+    this.sfx.connect(comp);
     // 2 s of white noise, shared by wind / thuds / splashes
     this.noise = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    // wind loop
+    // wind loop: brown noise (integrated white) -> lowpass: a soft rush, never a hiss
+    const brown = ctx.createBuffer(1, ctx.sampleRate * 3, ctx.sampleRate);
+    const bd = brown.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < bd.length; i++) {
+      last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02;
+      bd[i] = last * 3.5;
+    }
     const src = ctx.createBufferSource();
-    src.buffer = this.noise;
+    src.buffer = brown;
     src.loop = true;
     this.windFilter = ctx.createBiquadFilter();
-    this.windFilter.type = 'bandpass';
-    this.windFilter.Q.value = 0.7;
+    this.windFilter.type = 'lowpass';
+    this.windFilter.Q.value = 0.5;
     this.windFilter.frequency.value = A.windCut0;
     this.windGain = ctx.createGain();
     this.windGain.gain.value = 0;
     src.connect(this.windFilter).connect(this.windGain).connect(this.master);
     src.start();
     if (musicUrl) void this.loadMusic(musicUrl);
+    else {
+      this.synth = new Music(ctx, this.master);
+      this.synth.start();
+    }
   }
 
   private async loadMusic(url: string): Promise<void> {
@@ -224,11 +247,13 @@ export class Audio {
   private bell(streak: number): void {
     const ctx = this.ok();
     if (!ctx) return;
-    const t = ctx.currentTime + 0.01;
-    const f = CONFIG.audio.bellBase * semi(PENTA[Math.min(streak - 1, PENTA.length - 1)]);
-    this.tone('sine', f, f, t, 0.32, 0.004, 0.9);
-    this.tone('sine', f * 2.76, f * 2.76, t, 0.1, 0.002, 0.35);
-    this.tone('triangle', f * 2, f * 2, t, 0.08, 0.004, 0.5);
+    const t = ctx.currentTime + 0.01, A = CONFIG.audio;
+    // soft chime: rises a pentatonic step per streak step, then cycles inside one octave (never shrill)
+    const step = (streak - 1) % A.bellSteps;
+    const f = A.bellBase * semi(PENTA[step]);
+    this.tone('sine', f, f, t, A.bell, 0.008, 0.7);
+    this.tone('sine', f * 2, f * 2, t, A.bell * 0.25, 0.006, 0.35);
+    this.tone('sine', f * 0.5, f * 0.5, t, A.bell * 0.35, 0.01, 0.5);
   }
 
   private blip(chain: number): void {
@@ -236,8 +261,8 @@ export class Audio {
     if (!ctx) return;
     const t = ctx.currentTime;
     const f = CONFIG.audio.coinBase * semi(PENTA[Math.min(chain, PENTA.length - 1)]);
-    this.tone('square', f, f, t, 0.07, 0.002, 0.07);
-    this.tone('sine', f * 2, f * 2, t + 0.04, 0.09, 0.002, 0.1);
+    this.tone('triangle', f, f, t, 0.06, 0.003, 0.08);
+    this.tone('sine', f * 1.5, f * 1.5, t + 0.035, 0.05, 0.003, 0.1);
   }
 
   private whoosh(): void {
@@ -283,6 +308,7 @@ export class Audio {
   sting(): void {
     const ctx = this.ok();
     if (!ctx) return;
+    this.synth?.duck(2.2);
     const t = ctx.currentTime, a = CONFIG.audio.sting;
     // Cmaj9 rolled upward + a soft detuned pad
     [523.25, 659.25, 783.99, 987.77, 1174.66].forEach((f, i) => {
@@ -304,6 +330,46 @@ export class Audio {
     }
   }
 
+  /** Race countdown: a soft beep, a brighter one on GO. */
+  beep(go: boolean): void {
+    const ctx = this.ok();
+    if (!ctx) return;
+    const f = go ? 880 : 440;
+    this.tone('triangle', f, f, ctx.currentTime, 0.14, 0.005, go ? 0.5 : 0.18);
+  }
+
+  /** Through a boost ring. */
+  ring(): void {
+    this.whoosh();
+  }
+
+  /** Race finish: a fanfare for a win / medal, a gentle cadence otherwise. */
+  finish(win: boolean, medal: number): void {
+    const ctx = this.ok();
+    if (!ctx) return;
+    this.synth?.duck(2.5);
+    if (win || medal >= 0) this.fanfare();
+    else [523.25, 440, 392].forEach((f, i) => this.tone('sine', f, f, ctx.currentTime + i * 0.2, 0.12, 0.02, 0.6));
+  }
+
+  /** The night is near: two soft low tones. */
+  warn(): void {
+    const ctx = this.ok();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    this.tone('sine', 392, 392, t, 0.14, 0.02, 0.35);
+    this.tone('sine', 311.13, 311.13, t + 0.3, 0.14, 0.02, 0.5);
+  }
+
+  /** Passing the record distance: a bright rising arpeggio. */
+  record(): void {
+    const ctx = this.ok();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    this.synth?.duck(1.2);
+    [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => this.tone('triangle', f, f, t + i * 0.08, 0.12, 0.008, 0.5));
+  }
+
   /** A visual bump on the mountain descent: a soft low thump. */
   bump(): void {
     const ctx = this.ok();
@@ -317,6 +383,7 @@ export class Audio {
   private landChord(): void {
     const ctx = this.ok();
     if (!ctx) return;
+    this.synth?.duck(1.4);
     const t = ctx.currentTime + 0.01, a = CONFIG.audio.landChord;
     this.noiseHit(t, 'highpass', 5000, 9000, 0.6, 0.18, 0.004, 0.35);
     [1046.5, 1318.5, 1568, 2093].forEach((f, i) => {

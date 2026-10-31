@@ -21,6 +21,11 @@ async function main(): Promise<void> {
   const cdp = await ctx.newCDPSession(page);
   await page.goto(`${url}/index.html?bot=1&seed=3${pinned ? `&quality=${pinned}` : ''}`);
   await page.waitForFunction("!!window.__sd && window.__sd.state() === 'playing'", null, { timeout: 20000 });
+  if (process.env.PERF_RACE) {
+    // race mode: 4 AI birds on screen around the player
+    await page.evaluate('window.__sd.startRace(1)');
+    await page.waitForFunction("window.__sd.state() === 'playing' && window.__sd.race()", null, { timeout: 20000 });
+  }
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: throttle });
   await cdp.send('HeapProfiler.enable');
   await cdp.send('HeapProfiler.collectGarbage');

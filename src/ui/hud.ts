@@ -28,14 +28,17 @@ export class Hud {
   private readonly dotsBox: HTMLDivElement;
   private readonly dial: HTMLDivElement;
   private readonly orb: HTMLDivElement;
+  private readonly trend: HTMLDivElement;
   private roll = 0;
   private lastTarget = 0;
-  private shown = { score: -1, kmh: -1, tier: -1, streak: -1, fever: false, day: -1, night: -1 };
+  private shown = { score: -1, kmh: -1, tier: -1, streak: -1, fever: false, day: -1, night: -1, trend: '', danger: false };
 
   constructor(parent: HTMLElement) {
     this.root = el('div', 'hud', parent);
     this.dial = el('div', 'dial', this.root);
     this.orb = el('div', 'dial-orb', this.dial);
+    // daylight trend under the dial: the night approaches (red, down) or retreats (green, up)
+    this.trend = el('div', 'day-trend', this.root);
     const box = el('div', 'score-box', this.root);
     this.score = el('div', 'score', box, '0');
     const row = el('div', 'speed-row', box);
@@ -108,6 +111,22 @@ export class Hud {
       s.fever = run.fever;
       this.dots.forEach((d, i) => d.classList.toggle('on', run.fever || i < streak));
       this.dotsBox.classList.toggle('fever', run.fever);
+    }
+    // daylight trend + danger (endless run)
+    if (run.useDay) {
+      const tr = run.day.trend, D = CONFIG.day;
+      const cls = run.inSequence ? 'hold' : tr > 0.05 ? 'up' : tr < -0.9 ? 'down2' : 'down';
+      const txt = `${cls === 'up' ? '▲' : cls === 'hold' ? '■' : '▼'} ${Math.max(0, Math.ceil(run.day.left))}s`;
+      if (txt + cls !== s.trend) {
+        s.trend = txt + cls;
+        this.trend.textContent = txt;
+        this.trend.className = `day-trend ${cls}`;
+      }
+      const danger = run.day.left < D.warn;
+      if (danger !== s.danger) {
+        s.danger = danger;
+        this.dial.classList.toggle('danger', danger);
+      }
     }
     // day dial: remaining daylight ring + sky colors, sun -> moon
     const day = Math.round(run.daylight * 200) / 200;

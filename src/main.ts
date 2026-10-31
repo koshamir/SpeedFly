@@ -8,7 +8,7 @@ import { CONFIG } from './config';
 import { EventBus, type GameEvents } from './core/events';
 import { Input } from './core/input';
 import { Loop } from './core/loop';
-import { load, save } from './core/storage';
+import { loadRecords, submitRecords } from './core/records';
 import { Quality } from './render/quality';
 import { Renderer } from './render/renderer';
 import { Bot, type BotPolicy } from './sim/bot';
@@ -19,6 +19,12 @@ import { applyTuning, parseTuning, worldKey } from './tuning';
 import { islandStyle } from './world/islands';
 import { Screens } from './ui/screens';
 import { Teacher } from './ui/teacher';
+import { Tutorial } from './ui/tutorial';
+import { Settings } from './ui/settings';
+import { Tilt } from './core/tilt';
+import { RaceRun } from './sim/race';
+import { RaceUI } from './ui/race';
+import { load, save } from './core/storage';
 import type { TunePanel } from './ui/tune';
 import type { TerrainMode } from './world/world';
 
@@ -26,7 +32,7 @@ import type { TerrainMode } from './world/world';
 applyTuning(parseTuning(tuningFile));
 
 // Bootstrap, resize and the state machine: Title -> Playing <-> Paused -> Caught -> Results -> Playing.
-type State = 'title' | 'playing' | 'paused' | 'caught' | 'results';
+type State = 'title' | 'playing' | 'paused' | 'caught' | 'results' | 'raceMenu' | 'countdown' | 'raceEnd';
 
 const params = new URLSearchParams(location.search);
 const debugOn = params.get('debug') === '1';
@@ -59,6 +65,45 @@ const popups = new Popups(uiRoot);
 const screens = new Screens(uiRoot);
 const audio = new Audio(bus);
 const teacher = new Teacher(uiRoot, botPolicy !== null);
+const tutorial = new Tutorial(uiRoot);
+let tutorialOpen = false;
+/** First tap on the title: the "how to fly" card once (never with the bot), then the run. */
+function begin(): void {
+  if (botPolicy === null && load('tutorialSeen') !== '1') openTutorial();
+  else startPlaying();
+}
+function openTutorial(): void {
+  tutorialOpen = true;
+  tutorial.show(true);
+  screens.showOnly(null);
+}
+tutorial.close.addEventListener('click', () => {
+  save('tutorialSeen', '1');
+  tutorialOpen = false;
+  tutorial.show(false);
+  if (state === 'title') startPlaying();
+});
+screens.help.addEventListener('click', openTutorial);
+
+// ---------- settings + tilt control ----------
+const tilt = new Tilt();
+input.tilt = tilt;
+const settings = new Settings(uiRoot, tilt, {
+  get muted() {
+    return audio.muted;
+  },
+  toggle: () => {
+    audio.unlock();
+    audio.setMuted(!audio.muted);
+    syncSound();
+  },
+});
+screens.gear.addEventListener('click', () => settings.show(true));
+screens.pauseSettings.addEventListener('click', () => settings.show(true));
+const tiltInd = el('div', 'tilt-ind', uiRoot, 'TILT');
+// tilt chosen last time: re-enable on the first tap (iOS asks for permission inside a gesture)
+if (load('control') === 'tilt' && Tilt.available())
+  window.addEventListener('pointerdown', () => void settings.enableTilt(), { once: true, capture: true });
 const soundBtn = el('button', 'btn-round btn-sound', uiRoot);
 soundBtn.setAttribute('data-ui', '');
 soundBtn.setAttribute('aria-label', 'Sound');
@@ -80,8 +125,14 @@ let run = new Run(newSeed(), mode, bus);
 let bot = botPolicy ? new Bot(run.world.terrain, botPolicy, botDelay) : null;
 renderer.setRun(run);
 let teachCur = run.world.terrain.cursor();
+/** Race mode (null = the endless run). */
+let race: RaceRun | null = null;
+const raceUI = new RaceUI(uiRoot);
+let countShown = -9;
 
-let best = Number(load('best')) || 0;
+const records = loadRecords();
+let best = records.score;
+let recordShown = false;
 screens.setBest(best);
 let state: State = 'title';
 let stateT = 0;
@@ -93,20 +144,64 @@ function setState(s: State): void {
   stateT = 0;
   audio.setRunning(s !== 'paused' && !document.hidden);
   loop.simulate = s === 'playing';
-  hud.show(s === 'playing' || s === 'paused' || s === 'caught');
+  hud.show((s === 'playing' || s === 'paused' || s === 'caught' || s === 'countdown') && !race);
+  raceUI.showHud(!!race && (s === 'playing' || s === 'paused' || s === 'countdown'));
   screens.showOnly(s === 'title' ? screens.title : s === 'paused' ? screens.pause : s === 'results' ? screens.results : null);
+  raceUI.menu.classList.toggle('visible', s === 'raceMenu');
+  raceUI.results.classList.toggle('visible', s === 'raceEnd');
+  if (s === 'raceMenu') raceUI.fillMenu();
+  if (s === 'raceEnd' && race) {
+    const medal = raceUI.fillResults(race);
+    audio.finish(race.place === 1, medal);
+  }
   if (s === 'results') {
     const total = Math.floor(run.score.total);
     const isNew = total > best;
-    if (isNew) {
-      best = total;
-      save('best', String(best));
-      screens.setBest(best);
-    }
-    screens.fillResults(run, best, isNew);
+    const sc = run.score;
+    const broken = submitRecords(records, {
+      score: total,
+      meters: Math.floor(sc.meters),
+      island: run.island,
+      chain: sc.maxStreak,
+      kmh: Math.round(sc.maxSpeed * CONFIG.speed.kmhPerPx),
+    });
+    best = records.score;
+    screens.setBest(best);
+    renderer.flag.x = records.meters * CONFIG.speed.pxPerMeter;
+    screens.fillResults(run, best, isNew, broken);
     screens.setRetryLocked(true);
   }
 }
+
+/** Race: build the track + rivals and count down. */
+function startRace(track: number): void {
+  race = new RaceRun(track, bus);
+  run = race.run;
+  bot = botPolicy ? new Bot(run.world.terrain, botPolicy, botDelay) : null;
+  renderer.setRun(run);
+  renderer.setRace(race);
+  renderer.flag.x = 0;
+  teachCur = run.world.terrain.cursor();
+  popups.clear();
+  countShown = -9;
+  setState('countdown');
+}
+
+/** Leave the race mode: an endless run behind the menus again. */
+function endRaceMode(): void {
+  race = null;
+  renderer.setRace(null);
+  newRun();
+  renderer.flag.x = records.meters * CONFIG.speed.pxPerMeter;
+}
+screens.raceBtn.addEventListener('click', () => setState('raceMenu'));
+raceUI.onPick = (i) => startRace(i);
+raceUI.back.addEventListener('click', () => setState('title'));
+raceUI.again.addEventListener('click', () => race && startRace(race.track));
+raceUI.toMenu.addEventListener('click', () => {
+  endRaceMode();
+  setState('raceMenu');
+});
 
 function newRun(seed = newSeed()): void {
   jump.on = false;
@@ -117,9 +212,11 @@ function newRun(seed = newSeed()): void {
   renderer.setRun(run);
   teachCur = run.world.terrain.cursor();
   popups.clear();
+  recordShown = false;
 }
 
 function startPlaying(): void {
+  if (tilt.enabled) tilt.calibrate(); // the angle the player holds the phone at = neutral
   run.start();
   setState('playing');
 }
@@ -145,7 +242,7 @@ function togglePause(): void {
 
 // ---------- input ----------
 input.onPress = (kind) => {
-  if (state === 'title' && !rotated) startPlaying();
+  if (state === 'title' && !rotated && !tutorialOpen && !settings.open) begin();
   else if (state === 'results' && kind === 'key') retry();
 };
 input.onKey = (code) => {
@@ -153,13 +250,14 @@ input.onKey = (code) => {
   if (code === 'KeyT' && import.meta.env.DEV) return loadTune(true);
   if (code === 'Escape' || code === 'KeyP') togglePause();
   else if (code === 'Enter') {
-    if (state === 'title') startPlaying();
+    if (state === 'title' && !tutorialOpen) begin();
     else if (state === 'results') retry();
   }
 };
 hud.pause.addEventListener('click', () => state === 'playing' && setState('paused'));
 screens.resume.addEventListener('click', togglePause);
 screens.restart.addEventListener('click', () => {
+  if (race) return startRace(race.track);
   newRun();
   startPlaying();
 });
@@ -235,7 +333,13 @@ function slowMo(): number {
   const w = d <= 0 ? 1 : d >= J.slowMoEase ? 0 : 1 - (d / J.slowMoEase) * (d / J.slowMoEase) * (3 - (2 * d) / J.slowMoEase);
   return 1 - (1 - J.slowMo) * w;
 }
-bus.on('caught', () => setState('caught'));
+bus.on('caught', () => {
+  setState('caught');
+  popups.showBanner('GOOD NIGHT', 'the night caught up');
+});
+bus.on('land', (e) => teacher.landed(e.kind));
+bus.on('dayGain', (e) => popup('day', `+${Math.round(e.amount)}s DAY`, 150));
+bus.on('nightNear', () => audio.warn());
 const lastLand = { kind: '', t: -1 };
 bus.on('land', (e) => {
   lastLand.kind = e.kind;
@@ -245,7 +349,8 @@ bus.on('land', (e) => {
 // ---------- loop ----------
 function step(): void {
   const held = bot ? bot.tick(run.bird) : input.held;
-  run.step(held);
+  if (race) race.step(held);
+  else run.step(held);
   stepsThisFrame++;
 }
 
@@ -294,6 +399,12 @@ function frame(dt: number, alpha: number): void {
   loop.timeScale = slowMo();
   dt *= loop.timeScale; // render time follows the slow-mo too
   stateT += dt;
+  // passing the record distance: the hook to try again
+  if (!recordShown && records.meters > 50 && state === 'playing' && run.score.meters > records.meters) {
+    recordShown = true;
+    popup('record', 'NEW RECORD!', 190);
+    audio.record();
+  }
   if (jump.on && !jump.apexDone && run.cx >= jump.apexX) {
     jump.apexDone = true;
     islandBanner(jump.k + 1);
@@ -302,6 +413,28 @@ function frame(dt: number, alpha: number): void {
   frames++;
   elapsed += dt;
   if (state === 'caught' && stateT >= CONFIG.night.caughtTime) setState('results');
+  // race: countdown, live HUD, ring boosts, the end
+  if (race) {
+    if (state === 'countdown') {
+      const n = Math.ceil(CONFIG.race.countdown - stateT);
+      if (n !== countShown) {
+        countShown = n;
+        raceUI.countdown(Math.max(0, n));
+        audio.beep(n <= 0);
+      }
+      if (stateT >= CONFIG.race.countdown) {
+        race.start();
+        setState('playing');
+      }
+    } else if (stateT > 0.7 && countShown <= 0) raceUI.countdown(-1);
+    if (race.ringHit >= 0) {
+      race.ringHit = -1;
+      popup('boost', 'RING BOOST!', 110);
+      audio.ring();
+    }
+    if (state === 'playing' && race.done) setState('raceEnd');
+    if (bot && state === 'raceEnd' && stateT >= CONFIG.bot.autoRetry) startRace(race.track);
+  }
   if (state === 'results') screens.setRetryLocked(stateT < CONFIG.ui.retryLock);
   if (bot && state === 'title' && stateT >= CONFIG.bot.autoStart) startPlaying();
   if (bot && state === 'results' && stateT >= CONFIG.bot.autoRetry) retry();
@@ -311,13 +444,14 @@ function frame(dt: number, alpha: number): void {
     renderer.setQuality(quality.dpr, quality.particles, quality.grain);
     resize();
   }
-  teacher.update(dt, run, teachCur, state === 'playing');
+  teacher.update(dt, run, teachCur, state === 'playing' && !race);
   renderer.teacher = teacher.alpha;
   // during a hit-stop the canvas keeps its last image; the sim keeps stepping
   if (hitStop > 0) hitStop -= dt;
   else renderer.frame(dt, alpha, asleep, state === 'playing');
   audio.frame(run.speed, !run.bird.grounded && run.held && run.flightK === 0, state === 'playing', renderer.rig.cine);
-  hud.update(dt, run, renderer.skyState);
+  if (race && (state === 'playing' || state === 'countdown')) raceUI.update(race, (x, y, o) => renderer.toScreen(x, y, o), renderer.layout.gw, renderer.layout.gh);
+  else hud.update(dt, run, renderer.skyState);
   renderer.toScreen(renderer.bx, renderer.by, scr);
   const u = renderer.layout.gw / renderer.layout.logW;
   popups.update(dt, scr.x, scr.y, u, renderer.layout.gw);
@@ -326,12 +460,15 @@ function frame(dt: number, alpha: number): void {
     screens.zzz.style.top = `${scr.y - 90 * u}px`;
   }
   debug?.frame(dt, stepsThisFrame, renderer.rig.z, run.held);
+  tiltInd.style.display = tilt.enabled && state === 'playing' ? '' : 'none';
+  tiltInd.classList.toggle('on', tilt.pressed);
   tune?.frame(dt);
   stepsThisFrame = 0;
 }
 
 const loop = new Loop(step, frame);
 renderer.onBump = () => audio.bump();
+renderer.flag.x = records.meters * CONFIG.speed.pxPerMeter;
 renderer.fx.onSonic = () => {
   renderer.rig.shake(CONFIG.camera.shakeSonic);
   audio.boom();
@@ -361,6 +498,8 @@ loop.start();
   fps: () => (elapsed > 0 ? frames / elapsed : 0),
   lastLand: () => lastLand,
   quality: () => quality.level,
+  race: () => race,
+  startRace,
   jump: () => jump,
   cine: () => renderer.rig.cine,
   held: () => input.held,

@@ -176,13 +176,22 @@ at that height in the world — the player sees the target when the camera zooms
   | BAD | anything else | 0, Fever ends | no text: thud, dots flash red + shake |
   | SPLASH | water | 0, Fever ends | "SPLASH!" |
   v3 judged 12.5° hard and broke the combo on every "almost" landing and on skims ("random" feeling).
+- **Daylight (v5, endless run)** — "speed and skill buy daylight" (`src/sim/day.ts`, `CONFIG.day`):
+  seconds of daylight left; drain/s = (1 + t·drainGrow) × lerp(slowMul 1.15, fastMul 0.45, speed 700→1700);
+  gains: GREAT 0.9 + 0.25/streak step (≤6), Fever 0.5/s, sky touch 3, new island 15; paused during the
+  island-end sequence. Sky = left / full. HUD: day dial + trend (▲ retreating / ▼ approaching / ■ paused,
+  seconds left), red pulse + sound under `warn` s, "+Ns DAY" popups. Caught → "GOOD NIGHT" (2.2 s) → results.
+  Run lengths (`GP_T=1200 npm run gameplay`): naive ~1.5 min, p100 ~3.4, p50 ~7.7, pro ~14 (night wins).
+  `?terrain=reference` keeps the v1 position night (npm run sim acceptance).
+- **Records** (`src/core/records.ts`): best score, distance, island, GREAT chain, top speed; a flag on the terrain at
+  the best distance, "NEW RECORD!" when passing it; results list the broken records, button ONE MORE RUN.
 - **Streak/Fever**: streak ≥ 3 → Fever (×2 to all points, fire-rainbow trail, separate audio layer; does not
   change physics). 3 HUD dots show the progress toward Fever.
 - **Night**: `xNight(t) = −2500 + 300t + 4t²` (t from the first touch). `gap = bird.x − xNight`,
   `daylight = clamp(gap/2500, 0, 1)` → time of day (§7.1). gap ≤ 0 → `caught` → bird falls asleep → Results.
   New island: xNight −= 1200 (pushes night back; our design choice, not a confirmed Tiny Wings rule).
 - **Score** (×2 in Fever): distance 1 pt/10 px · flight ≥ 1 s: 50·airTime · GREAT 100+20·(streak−1) (≤200) ·
-  skyTouch 300 · coin 20 · blue coin 50 · island 500·k · island landing 300·k. Best score in localStorage (try/catch).
+  skyTouch 300 · coin 20 · blue coin 50 · island 500·k · island landing 300·k · high flight +0.3/px above 350 px. Best score in localStorage (try/catch).
 - **Speed tiers** (px/s → label): <700 —, ≥700 CRUISE, ≥1300 FAST, ≥1900 BLAZING, ≥2500 SONIC.
   The tier drives speed lines, trail, wind volume, speedometer color. First entry into SONIC per flight →
   "sonic boom": shockwave ring + 14 px shake + sound (3 s cooldown).
@@ -281,13 +290,21 @@ BLAZING+ white, Fever fire-rainbow), sonic boom ring, light vignette.
 - Bottom 25% of the screen: no UI.
 
 ## 8. Audio (WebAudio, unlocked on first pointerdown)
+v5: soundtrack generated in `src/audio/music.ts` (I–vi–IV–V pads, bass, pentatonic plucks, shaker; filter
+opens with the speed tier; ducks under stings) unless `src/audio/music.mp3` exists. Wind = brown noise
+through a lowpass (no hiss). GREAT = soft chime cycling inside `bellSteps`; SFX bus compressor.
 Wind: looped filtered noise, volume and cutoff rise with speed (louder while diving).
 Landing: dull thud (BAD — lower + "boing"). GREAT: bell, +1 pentatonic step per streak step.
 Fever: arpeggio + shimmering loop. Coins: short blip with rising pitch within a chain.
 skyTouch: airy bell. Island: 3-note fanfare. Night: descending soft tones.
 Music: optional `public/music.mp3` (loop), lowpass opens with speed tier. Mute button.
 
-## 9. Onboarding (Touch Teacher)
+## 9. Onboarding (How to fly + smart Touch Teacher)
+First launch: an illustrated card (HOLD / LET GO / TAP TO LAND + the goal), closed with LET'S FLY (title "?"
+reopens it). In play the Touch Teacher measures three skills — hold on downslopes, release on upslopes
+(EMAs of the finger state), landing quality (GREAT 1 / GOOD 0.5) — and fades each hint once its skill passes
+`teacher.master` / `landMaster`; all mastered for `masterTime` s → retired for good (localStorage).
+Old text (v4):
 Until the player lands 3 GREATs (flag in localStorage): downslope rims green with "HOLD", upslope rims
 amber with "LET GO", a pulsing ghost finger before entering a downslope; under the label the whole loop in one
 line: "release on the uphill — fly — tap to land on a downhill". Fades out after 3 GREATs or at the end of island 1.
@@ -334,6 +351,27 @@ Physics acceptance (`npm run sim`, `?terrain=reference`, 240 s, seeds 7/11/23; r
 Manual feel acceptance: holding on a downslope visibly accelerates; releasing near the crest launches;
 holding through a crest "glues"; tapping in the air makes the bird drop noticeably faster; no ground
 jitter or micro-hops; 3 GREATs in a row achievable on island 1 within the first 30 s of deliberate play.
+
+## 14. Race mode (`src/sim/race.ts`, `src/world/tracks.ts`, `src/ui/race.ts`, `src/render/raceView.ts`)
+- 3 designed tracks (fixed layouts, no randomness), a section block repeated to `race.length` (170 000 px,
+  ~2–3 min): rhythm hills, deep valleys + launch kickers, slow flats a high flight skips, long drops.
+  Features: **Meadow Rings** — boost rings at peakY + `ringHeight` (speed ×`ringMul`, like a blue coin);
+  **Candy Draft** — slipstream: the player 60–450 px behind a rival at about the same height gets drag ×0.5
+  and vSoft +150 (no forward force); **Ember Sunset** — the night trails the last running bird and closes in
+  over `sunsetClose` s; when it reaches it, that bird sleeps (eliminated), then it restarts on the new last.
+- 4 rivals = the planner bot with a reaction delay (Pip 4, Zuzu 5, Kiki 6, Bo 8 decisions), re-planning every
+  `aiPlanEvery` decisions (perf); subtle rubber band: AI drag ×(1 ∓ `catchUp`) by the gap to the player.
+  The slipstream is the player's tool only. Birds don't collide.
+- UX: countdown 3-2-1-GO, place "2nd / 5", time, progress bar with every bird, off-screen name markers,
+  finish banner, results (order, times, medal gold/silver/bronze per track, best time in localStorage).
+- `npm run race`: every track × pro / p50 / p100 / naive player bots. Last: pro wins all (138–143 s),
+  p50 wins or places, naive last → PASS.
+
+## 15. Tilt control (`src/core/tilt.ts`, Settings)
+Phones only. deviceorientation gamma relative to a calibrated neutral (taken at run start / Calibrate):
+> `tilt.threshold` (6–30°, Settings sensitivity) = press, < threshold − `hysteresis` = release. No smoothing:
+added latency = one sensor event (~16 ms). iOS: requestPermission from the toggle tap; denied / no data
+within 0.7 s → message, touch stays. HUD pill "TILT" lights when pressed. Settings: title ⚙ and pause.
 
 ## 13. Do not
 Meta-progression (TW nests/objectives), shops, ad placeholders, physics engines, external CDNs,

@@ -24,6 +24,7 @@ export class Bot {
     private readonly terrain: Terrain,
     readonly policy: BotPolicy,
     readonly delay = 0, // in decisions (x decideEvery steps)
+    readonly planEvery = 1, // air: re-plan every N decisions, follow the chosen plan in between (race AI: cheaper)
   ) {
     this.cur = terrain.cursor();
     this.q = new Uint8Array(delay + 1);
@@ -65,7 +66,15 @@ export class Bot {
 
   private planner(b: Bird, d1: number): boolean {
     const B = CONFIG.bot;
-    if (b.grounded) return d1 < B.groundSlope; // ground: hold on downhill, release on uphill
+    if (b.grounded) {
+      this.planAge = 1e9;
+      return d1 < B.groundSlope; // ground: hold on downhill, release on uphill
+    }
+    if (this.planAge < this.planEvery) {
+      // follow the last plan: release for planRel steps since it was made, then dive
+      this.planAge++;
+      return this.planAge * B.decideEvery > this.planRel;
+    }
     let best = 1e9, bestScore = -1e18;
     const plans = B.plans;
     for (let i = 0; i < plans.length; i++) {
@@ -77,8 +86,13 @@ export class Bot {
         best = r;
       }
     }
+    this.planAge = 1;
+    this.planRel = best;
     return best === 0;
   }
+
+  private planAge = 1e9;
+  private planRel = 0;
 
   /** Release for N steps, then dive until touchdown. */
   private predict(b: Bird, releaseSteps: number): void {

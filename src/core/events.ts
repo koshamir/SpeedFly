@@ -21,6 +21,9 @@ export interface GameEvents {
   islandLand: { k: number; kind: LandKind; x: number; y: number; speed: number };
   speedTier: { tier: number; prev: number };
   caught: { x: number };
+  // daylight bought by skill (endless run) / the night is close
+  dayGain: { amount: number; x: number; y: number };
+  nightNear: { left: number };
   points: { amount: number; x: number; y: number };
 }
 

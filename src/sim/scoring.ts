@@ -14,6 +14,7 @@ export class Scoring {
   islands = 0;
   feverTime = 0;
   maxSpeed = 0;
+  maxStreak = 0;
 
   /** Returns the points actually awarded. */
   add(points: number, fever: boolean): number {
@@ -22,11 +23,12 @@ export class Scoring {
     return p;
   }
 
-  /** Points for a landing (flight time + GREAT streak bonus), before the multiplier. */
-  static landing(great: boolean, airTime: number, streak: number): number {
+  /** Points for a landing (flight time + height + GREAT streak bonus), before the multiplier. */
+  static landing(great: boolean, airTime: number, streak: number, alt: number): number {
     const S = CONFIG.score;
     let p = 0;
     if (airTime >= S.flightMin) p += S.flightPerSec * airTime;
+    if (alt > S.heightFrom) p += (alt - S.heightFrom) * S.heightPerPx;
     if (great) p += Math.min(S.greatMax, S.greatBase + S.greatStep * (streak - 1));
     return p;
   }

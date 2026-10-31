@@ -7,10 +7,13 @@ function isUi(target: EventTarget | null): boolean {
 
 export class Input {
   /** Fresh press (pointer or space) outside UI buttons. */
-  onPress: ((kind: 'pointer' | 'key') => void) | null = null;
+  onPress: ((kind: 'pointer' | 'key' | 'tilt') => void) | null = null;
   onKey: ((code: string) => void) | null = null;
   private readonly pointers = new Set<number>();
   private space = false;
+  /** Tilt control (phones), counts as a held finger while pressed. */
+  tilt: { enabled: boolean; pressed: boolean } | null = null;
+  private tiltWas = false;
 
   constructor(private readonly root: HTMLElement) {
     root.addEventListener('pointerdown', this.down);
@@ -44,7 +47,10 @@ export class Input {
   }
 
   get held(): boolean {
-    return this.pointers.size > 0 || this.space;
+    const t = !!this.tilt?.enabled && this.tilt.pressed;
+    if (t && !this.tiltWas && this.pointers.size === 0 && !this.space) this.onPress?.('tilt');
+    this.tiltWas = t;
+    return this.pointers.size > 0 || this.space || t;
   }
 
   readonly reset = (): void => {

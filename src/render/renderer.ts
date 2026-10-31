@@ -7,6 +7,9 @@ import { BirdView } from './birdView';
 import { CameraRig } from './camera';
 import { CoinsView } from './coinsView';
 import { DebugLines } from './debugLines';
+import { FlagView } from './flagView';
+import { RaceView } from './raceView';
+import type { RaceRun } from '../sim/race';
 import { Fx } from './fx/fx';
 import { computeLayout, type Layout } from './layout';
 import { hexRgb, newSky, skyAt, type RGB } from './palette';
@@ -47,6 +50,9 @@ export class Renderer {
   private readonly coins = new CoinsView();
   private readonly bird: BirdView;
   private readonly night = new NightFront();
+  /** Record marker (main sets flag.x to the best distance). */
+  readonly flag = new FlagView();
+  readonly raceView = new RaceView();
   readonly fx: Fx;
   private lines: DebugLines | null = null;
   private readonly clear = new THREE.Color();
@@ -69,7 +75,7 @@ export class Renderer {
     this.bird = new BirdView(bus);
     this.fx = new Fx(bus);
     this.fx.onSonic = () => this.rig.shake(CONFIG.camera.shakeSonic);
-    this.scene.add(this.sky.mesh, this.clouds.mesh, this.terrain.group, this.water.mesh, this.coins.mesh, this.bird.mesh, this.fx.group, this.night.mesh);
+    this.scene.add(this.sky.mesh, this.clouds.mesh, this.terrain.group, this.water.mesh, this.coins.mesh, this.flag.mesh, this.raceView.group, this.bird.mesh, this.fx.group, this.night.mesh);
     bus.on('land', (e) => {
       if (e.kind === 'bad') this.rig.shake(CONFIG.camera.shakeBad);
     });
@@ -138,6 +144,12 @@ export class Renderer {
       }
   }
 
+  /** Race visuals on/off (rivals, finish, rings). */
+  setRace(race: RaceRun | null): void {
+    this.raceView.set(race);
+    this.flag.mesh.visible = false;
+  }
+
   /** Quality level (render/quality.ts): DPR cap, particle budget, grain. */
   setQuality(dpr: number, particles: number, grain: number): void {
     this.dprCap = dpr;
@@ -192,9 +204,11 @@ export class Renderer {
     this.terrain.update(x0 - margin, x1 + margin, pxPerWorld, s.grade, this.teacher, this.grainK);
     this.water.update(run.world, x0, x1, this.time, pxPerWorld, s.grade, s.horizon);
     this.coins.update(run.world, x0 - margin, x1 + margin, this.time, s.grade, run.sky);
+    this.flag.update(this.cur, x0, x1, r.birdScale, this.time);
+    this.raceView.update(dt, alpha, x0, x1, r.birdScale, s.grade, asleep);
     this.bird.update(dt, run, cx, cy, d1, r.birdScale, asleep, s.grade);
     this.fx.update(live || asleep ? dt : 0, cx, cy, r.birdScale, x0, r.cy - r.viewH / 2, r.z, L.logW, L.logH, s.grade, live, r.cine, r.descent);
-    this.night.update(x0, x1, run.night.x, L.gw / L.gh, r.cine * CONFIG.fx.glare * (1 - s.night), CONFIG.render.sunX, s.sunY, s.sun, this.time);
+    this.night.update(x0, x1, run.nightX, L.gw / L.gh, r.cine * CONFIG.fx.glare * (1 - s.night), CONFIG.render.sunX, s.sunY, s.sun, this.time);
     // Fever: pulsing hue-cycling screen tint (edges weighted)
     const J = CONFIG.juice, tint = this.night.tint;
     this.feverK += ((run.fever && live ? 1 : 0) - this.feverK) * (1 - Math.exp(-dt * 4));

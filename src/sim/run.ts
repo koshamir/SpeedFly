@@ -4,6 +4,8 @@ import { COIN_BLUE } from '../world/collectibles';
 import { World, type TerrainMode } from '../world/world';
 import type { TerrainCursor } from '../world/terrain';
 import { Bird, EV_LAND, EV_TAKEOFF, speedOf, step } from './bird';
+import type { PhysicsConfig } from '../config';
+import { DayClock } from './day';
 import { Night } from './night';
 import { Scoring } from './scoring';
 
@@ -12,7 +14,18 @@ export class Run {
   readonly world: World;
   readonly bird = new Bird();
   readonly cur: TerrainCursor;
-  readonly night = new Night();
+  readonly night = new Night(); // ?terrain=reference (npm run sim acceptance): the v1 night chase
+  readonly day = new DayClock(); // islands: the daylight budget
+  /** false = the v1 position night (reference terrain). */
+  useDay: boolean;
+  readonly mode: TerrainMode;
+  /** Physics used for the player's bird (race slipstream swaps in a lower-drag copy). */
+  phys: PhysicsConfig = CONFIG.physics;
+  /** Race: world x of the sunset front (-Infinity = none); the race decides who it catches. */
+  raceNightX = -Infinity;
+  private warned = false;
+  private readonly eDay: GameEvents['dayGain'] = { amount: 0, x: 0, y: 0 };
+  private readonly eNear: GameEvents['nightNear'] = { left: 0 };
   readonly score = new Scoring();
   started = false;
   over = false;
@@ -69,6 +82,8 @@ export class Run {
     private readonly bus: GameBus,
   ) {
     this.world = new World(seed, mode);
+    this.useDay = mode === 'islands';
+    this.mode = mode;
     this.cur = this.world.terrain.cursor();
     const startX = mode === 'reference' ? CONFIG.terrain.refStartX : 0;
     const P = CONFIG.physics;
@@ -84,12 +99,31 @@ export class Run {
   }
 
   get daylight(): number {
-    return this.night.daylight(this.bird.x);
+    return this.useDay ? this.day.daylight : this.night.daylight(this.bird.x);
+  }
+
+  /** World x of the night front (visual). */
+  get nightX(): number {
+    if (this.mode === 'race') return this.raceNightX;
+    return this.useDay ? this.bird.x - Math.max(0, this.day.left) * CONFIG.day.frontPx : this.night.x;
+  }
+
+  /** Buy daylight (endless run); "+DAY" popup for meaningful amounts. */
+  private buyDay(s: number): void {
+    if (!this.useDay) return;
+    const got = this.day.gain(s);
+    if (got >= CONFIG.day.popupMin) {
+      const e = this.eDay;
+      e.amount = got;
+      e.x = this.cx;
+      e.y = this.cy;
+      this.bus.emit('dayGain', e);
+    }
   }
 
   step(held: boolean): void {
     if (!this.started || this.over) return;
-    const b = this.bird, P = CONFIG.physics;
+    const b = this.bird, P = this.phys;
     this.held = held;
     this.pcx = this.cx;
     this.pcy = this.cy;
@@ -121,7 +155,17 @@ export class Run {
     this.inSequence = b.x >= sq.summitX - CONFIG.islands.safeBefore && b.x < sq.targetX;
     if (this.inSequence) this.nightPaused += P.dt;
     this.night.t = this.t - this.nightPaused;
-    if (this.night.x >= b.x) {
+    let caught: boolean;
+    if (this.useDay) {
+      this.day.step(P.dt, this.speed, this.fever, this.inSequence);
+      if (!this.warned && this.day.left < CONFIG.day.warn) {
+        this.warned = true;
+        this.eNear.left = this.day.left;
+        this.bus.emit('nightNear', this.eNear);
+      } else if (this.day.left > CONFIG.day.warn + 3) this.warned = false;
+      caught = this.day.left <= 0;
+    } else caught = this.mode === 'race' ? false : this.night.x >= b.x;
+    if (caught) {
       this.over = true;
       if (this.fever) this.endFever();
       this.eCaught.x = b.x;
@@ -217,10 +261,13 @@ export class Run {
     this.lastAngle = b.evAngle;
     sc.landings++;
     if (kind === 'great') sc.greats++;
+    if (b.streak > sc.maxStreak) sc.maxStreak = b.streak;
     else if (kind === 'bad') sc.bads++;
     else if (kind === 'splash') sc.splashes++;
     // streak / Fever (Fever never touches physics)
     if (kind === 'great') {
+      const D = CONFIG.day;
+      if (this.flightK === 0) this.buyDay(D.great + D.greatStep * Math.min(b.streak - 1, D.greatCap));
       if (!this.fever && b.streak >= S.feverStreak) {
         this.fever = true;
         this.feverT0 = this.t;
@@ -251,11 +298,11 @@ export class Run {
       this.flightK = 0;
       this.sky.n = 0;
       this.bus.emit('islandLand', f);
-      this.points(Scoring.landing(kind === 'great', b.evAirTime, b.streak));
+      this.points(Scoring.landing(kind === 'great', b.evAirTime, b.streak, 0));
       this.points(CONFIG.score.islandLanding * f.k);
       return;
     }
-    this.points(Scoring.landing(kind === 'great', b.evAirTime, b.streak));
+    this.points(Scoring.landing(kind === 'great', b.evAirTime, b.streak, b.airAlt));
   }
 
   private endFever(): void {
@@ -271,6 +318,7 @@ export class Run {
     this.eSky.y = this.cy;
     this.bus.emit('skyTouch', this.eSky);
     this.points(CONFIG.score.skyTouch);
+    this.buyDay(CONFIG.day.sky);
   }
 
   private pickCoins(): void {
@@ -334,6 +382,7 @@ export class Run {
       this.island = k + 1;
       this.score.islands++;
       this.night.push += CONFIG.night.islandPushback;
+      this.buyDay(CONFIG.day.island);
       this.eIsland.index = k + 1;
       this.bus.emit('island', this.eIsland);
       this.points(CONFIG.score.islandPer * k);

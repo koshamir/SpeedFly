@@ -1,7 +1,7 @@
 import { CONFIG } from '../config';
 import { el } from './hud';
 
-export type PopupKind = 'great' | 'nice' | 'perfect' | 'points' | 'fever' | 'sky' | 'boost' | 'splash' | 'bad';
+export type PopupKind = 'great' | 'nice' | 'perfect' | 'day' | 'record' | 'points' | 'fever' | 'sky' | 'boost' | 'splash' | 'bad';
 
 interface Popup {
   e: HTMLDivElement;

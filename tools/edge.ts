@@ -25,6 +25,7 @@ async function main(): Promise<void> {
   const errors: string[] = [];
   const phone = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
   const ctx = await browser.newContext(phone);
+  await ctx.addInitScript("localStorage.setItem('sunsetdash.tutorialSeen', '1')"); // returning player (the how-to card is shot in npm run shot)
   const page = await ctx.newPage();
   page.on('request', (r) => !r.url().startsWith(url) && !r.url().startsWith('data:') && external.push(r.url()));
   page.on('pageerror', (e) => errors.push(e.message));

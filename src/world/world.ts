@@ -2,8 +2,9 @@ import { CONFIG } from '../config';
 import { Coins } from './collectibles';
 import { IslandGen, referenceIsland, type Island } from './islands';
 import { addPreroll, ReferenceGen, Terrain } from './terrain';
+import { TRACKS, TrackGen } from './tracks';
 
-export type TerrainMode = 'islands' | 'reference';
+export type TerrainMode = 'islands' | 'reference' | 'race';
 
 /** Everything generated from the seed: terrain, islands, collectibles. */
 export class World {
@@ -11,6 +12,8 @@ export class World {
   readonly coins = new Coins();
   readonly islands: Island[] = [];
   private islCursor = 0;
+  /** Race mode: the designed track (finish line, rings). */
+  readonly track: TrackGen | null = null;
 
   constructor(
     readonly seed: number,
@@ -20,6 +23,14 @@ export class World {
     if (mode === 'reference') {
       this.islands.push(referenceIsland());
       this.terrain.setGen(new ReferenceGen(seed));
+    } else if (mode === 'race') {
+      const def = TRACKS[((seed % TRACKS.length) + TRACKS.length) % TRACKS.length];
+      const isl = referenceIsland();
+      isl.palette = def.palette;
+      isl.bandMode = def.palette % 2;
+      this.islands.push(isl);
+      this.track = new TrackGen(def);
+      this.terrain.setGen(this.track);
     } else this.terrain.setGen(new IslandGen(seed, this.islands, this.coins));
     this.update(0);
   }

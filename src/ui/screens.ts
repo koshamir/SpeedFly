@@ -1,4 +1,5 @@
 import { CONFIG } from '../config';
+import { RECORD_NAMES, type Records } from '../core/records';
 import type { Run } from '../sim/run';
 import { el, fmt } from './hud';
 
@@ -18,24 +19,32 @@ export class Screens {
   readonly restart: HTMLButtonElement;
   readonly retry: HTMLButtonElement;
   readonly fullscreen: HTMLButtonElement;
+  readonly help: HTMLButtonElement;
+  readonly gear: HTMLButtonElement;
+  readonly raceBtn: HTMLButtonElement;
+  readonly pauseSettings: HTMLButtonElement;
   private readonly best: HTMLDivElement;
   private readonly rTitle: HTMLDivElement;
   private readonly rScore: HTMLDivElement;
   private readonly rBest: HTMLDivElement;
   private readonly rRows: HTMLDivElement;
+  private readonly rRecords: HTMLDivElement;
 
   constructor(parent: HTMLElement) {
     this.title = el('div', 'screen title-screen', parent);
     const logo = el('div', 'logo', this.title);
     el('span', 'logo-a', logo, 'SUNSET');
     el('span', 'logo-b', logo, 'DASH');
-    el('div', 'tagline', this.title, 'Outrun the sunset!');
+    el('div', 'tagline', this.title, 'Speed and GREAT landings buy daylight — outrun the night!');
     const hints = el('div', 'hints', this.title);
     const h1 = el('div', 'hint', hints);
     h1.innerHTML = `${SLOPE_DOWN}<b>Downhill</b><span>HOLD</span>`;
     const h2 = el('div', 'hint', hints);
     h2.innerHTML = `${SLOPE_UP}<b>Uphill</b><span>LET GO</span>`;
     el('div', 'tap', this.title, 'Tap to start');
+    this.raceBtn = el('button', 'btn btn-alt btn-race', this.title, '🏁 RACE');
+    this.help = el('button', 'btn-round btn-help', this.title, '?');
+    this.gear = el('button', 'btn-round btn-gear', this.title, '⚙');
     this.best = el('div', 'best', this.title);
     this.zzz = el('div', 'zzz', parent);
     this.zzz.innerHTML = '<span>z</span><span>Z</span><span>z</span>';
@@ -45,6 +54,7 @@ export class Screens {
     this.resume = el('button', 'btn btn-main', this.pause, 'Resume');
     this.restart = el('button', 'btn btn-alt', this.pause, 'Restart');
     this.fullscreen = el('button', 'btn btn-alt btn-fs', this.pause, 'Fullscreen');
+    this.pauseSettings = el('button', 'btn btn-alt', this.pause, 'Settings');
     const fsDoc = document as Document & { webkitFullscreenEnabled?: boolean };
     if (!(document.fullscreenEnabled || fsDoc.webkitFullscreenEnabled)) this.fullscreen.style.display = 'none';
 
@@ -53,14 +63,15 @@ export class Screens {
     this.rTitle = el('div', 'r-title', panel, 'Night fell');
     this.rScore = el('div', 'r-score', panel);
     this.rBest = el('div', 'r-best', panel);
+    this.rRecords = el('div', 'r-records', panel);
     this.rRows = el('div', 'r-rows', panel);
-    this.retry = el('button', 'btn btn-main', panel, 'Retry');
+    this.retry = el('button', 'btn btn-main', panel, 'ONE MORE RUN');
 
     this.rotate = el('div', 'screen rotate-screen', parent);
     el('div', 'rotate-icon', this.rotate);
     el('div', 'big-label', this.rotate, 'Rotate your phone');
 
-    for (const b of [this.resume, this.restart, this.retry, this.fullscreen]) b.setAttribute('data-ui', '');
+    for (const b of [this.resume, this.restart, this.retry, this.fullscreen, this.help, this.gear, this.pauseSettings, this.raceBtn]) b.setAttribute('data-ui', '');
     this.showOnly(null);
   }
 
@@ -81,8 +92,9 @@ export class Screens {
     this.retry.classList.toggle('locked', locked);
   }
 
-  fillResults(run: Run, best: number, newBest: boolean): void {
+  fillResults(run: Run, best: number, newBest: boolean, broken: (keyof Records)[] = []): void {
     const s = run.score;
+    this.rRecords.textContent = broken.length ? `NEW RECORD: ${broken.map((k) => RECORD_NAMES[k]).join(' · ')}` : '';
     this.rTitle.textContent = 'Night fell';
     this.rScore.textContent = fmt(s.total);
     this.rBest.textContent = newBest ? 'NEW BEST!' : `Best ${fmt(best)}`;
@@ -90,6 +102,8 @@ export class Screens {
     const rows: [string, string][] = [
       ['Distance', `${fmt(s.meters)} m`],
       ['GREAT landings', String(s.greats)],
+      ['Longest GREAT chain', String(s.maxStreak)],
+      ['Time survived', `${Math.floor(run.t / 60)}:${String(Math.floor(run.t % 60)).padStart(2, '0')}`],
       ['Fever time', `${s.feverTime.toFixed(1)} s`],
       ['Sky touches', String(s.skyTouches)],
       ['Coins', String(s.coins + s.blueCoins)],

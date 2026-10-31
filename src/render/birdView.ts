@@ -463,6 +463,11 @@ export class BirdView {
     bus.on('islandLand', () => (this.happyT = CONFIG.bird.happyTime));
   }
 
+  /** Scarf colour (race rivals). */
+  setScarf(hex: string): void {
+    hexRgb(hex, this.cScarf);
+  }
+
   /** A small squash kick (visual bumps on the mountain descent). */
   kick(): void {
     this.squash[1] = -CONFIG.bird.squashKick * 0.55;

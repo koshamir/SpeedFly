@@ -83,13 +83,43 @@ const SESSIONS: Session[] = [
     ],
   },
   {
-    // no bot: a tap starts the run, the Touch Teacher is on (fresh storage)
+    // no bot: a tap starts the run, the Touch Teacher is on (fresh storage, how-to card already seen)
     query: '?seed=3',
+    init: "localStorage.setItem('sunsetdash.tutorialSeen', '1');",
     act: "(() => { const r = document.getElementById('root'); const o = { pointerId: 1, bubbles: true, button: 0, pointerType: 'touch' }; r.dispatchEvent(new PointerEvent('pointerdown', o)); setTimeout(() => r.dispatchEvent(new PointerEvent('pointerup', o)), 1200); })()",
     shots: [
       { name: '17-teacher-hold', when: "sd.state() === 'playing' && document.querySelector('.teacher.hold') && sd.run().t > 0.8" },
       { name: '18-teacher-let', when: "document.querySelector('.teacher.let, .teacher.soon') && sd.run().t > 1.5" },
     ],
+  },
+  {
+    // first launch: the how-to-fly card, then settings
+    query: '?seed=3',
+    act: "(() => { const r = document.getElementById('root'); const o = { pointerId: 1, bubbles: true, button: 0, pointerType: 'touch' }; r.dispatchEvent(new PointerEvent('pointerdown', o)); r.dispatchEvent(new PointerEvent('pointerup', o)); })()",
+    shots: [
+      { name: '60-tutorial', when: "document.querySelector('.tutorial.visible')", delay: 900 },
+      { name: '61-settings', when: "(document.querySelector('.tutorial .btn-main').click(), document.querySelector('.btn-gear').click(), true) && document.querySelector('.settings.visible')", delay: 300 },
+    ],
+  },
+  {
+    // race: countdown, mid-race, results (bot drives the player)
+    query: '?bot=1&seed=3',
+    act: "setTimeout(() => window.__sd.startRace(1), 600)",
+    shots: [
+      { name: '70-race-countdown', when: "sd.state() === 'countdown' && document.querySelector('.race-count.show')", delay: 150 },
+      { name: '71-race-mid', when: "sd.state() === 'playing' && sd.race() && sd.race().t > 25", timeout: 90000 },
+      { name: '72-race-results', when: "sd.state() === 'raceEnd'", delay: 900, timeout: 300000 },
+    ],
+  },
+  {
+    query: '?bot=1&seed=3',
+    act: "setTimeout(() => window.__sd.startRace(0), 600)",
+    shots: [{ name: '73-race-rings', when: "sd.state() === 'playing' && sd.race() && sd.race().run.world.track.ringX.some((x) => Math.abs(x - sd.run().cx) < 500)", timeout: 120000 }],
+  },
+  {
+    query: '?bot=1&seed=3',
+    act: "setTimeout(() => window.__sd.startRace(2), 600)",
+    shots: [{ name: '74-race-sunset', when: "sd.state() === 'playing' && sd.race() && sd.race().t > 40", timeout: 120000 }],
   },
   {
     // the naive bot lands badly every few seconds

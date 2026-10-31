@@ -226,6 +226,29 @@ export const CONFIG = {
     cloudShade: '#DCE6F7', // underside of a cloud by day (multiplied by the light colour)
   },
 
+  // Daylight budget (endless run): speed and skill buy daylight. Seconds of daylight left; the sky
+  // follows left / full. Drain per s = (1 + t drainGrow) x lerp(slowMul, fastMul, speed in [vSlow, vFast]).
+  day: {
+    start: 85,
+    max: 100,
+    full: 50, // left >= this = full day
+    drainGrow: 0.006, // per s of play: the night slowly gets hungrier
+    vSlow: 700,
+    vFast: 1700,
+    slowMul: 1.15,
+    fastMul: 0.45,
+    great: 0.9, // s of daylight per GREAT ...
+    greatStep: 0.25, // ... + this per streak step ...
+    greatCap: 6, // ... up to this streak
+    fever: 0.5, // s per s in Fever
+    sky: 3, // sky touch
+    island: 15, // reaching a new island
+    trendTau: 1.2, // s: smoothing of the HUD trend arrow
+    frontPx: 140, // world px of night front per s of daylight left (visual)
+    warn: 10, // s left: warning pulse + sound
+    popupMin: 1, // "+DAY" popups for gains of at least this
+  },
+
   night: {
     startGap: 2500, // xNight(t) = -startGap + v0 t + accel t^2 / 2
     v0: 300,
@@ -234,7 +257,7 @@ export const CONFIG = {
     islandPushback: 1200,
     frontWidth: 600,
     frontAlpha: 0.88,
-    caughtTime: 1.2,
+    caughtTime: 2.2, // sunset -> sleep moment before the results
   },
 
   score: {
@@ -248,6 +271,8 @@ export const CONFIG = {
     coin: 20,
     blueCoin: 50,
     islandPer: 500,
+    heightFrom: 350, // high flights: +heightPerPx per px of flight height above this
+    heightPerPx: 0.3,
     islandLanding: 300, // x k: the scripted island landing ("PERFECT LANDING")
     feverMul: 2,
     feverStreak: 3,
@@ -506,11 +531,42 @@ export const CONFIG = {
     bumpDust: 5,
   },
 
+  // Race mode (SPEC §14)
+  race: {
+    length: 170000, // world px start -> finish (~2-3 min for a good player)
+    ringHeight: 650, // boost rings above the peak level
+    ringRadius: 120,
+    ringMul: 1.1, // speed x this (at least +ringAdd) through a ring
+    ringAdd: 100,
+    slipMin: 60, // slipstream: another bird 60..slipMax px ahead, |dy| < slipDy
+    slipMax: 450,
+    slipDy: 160,
+    slipDrag: 0.5, // drag x this while drafting ...
+    slipVSoft: 150, // ... and the soft speed limit + this
+    sunsetGap: 3000, // sunset track: the night trails the LAST running bird by this much ...
+    sunsetClose: 45, // ... and closes the gap over this many s; when it reaches the last bird, that bird sleeps
+    catchUp: 0.08, // AI drag x (1 -+ this) when the player is catchUpPx ahead / behind (subtle rubber band)
+    catchUpPx: 3000,
+    aiPlanEvery: 4, // AI birds re-plan their flight every N bot decisions (perf: 4 rivals on a phone)
+    countdown: 3, // s
+    afterFinish: 8, // s the race keeps running for the others after the player finishes
+  },
+
+  // Tilt control (phones): degrees to the right of the calibrated neutral = press; hysteresis = release
+  tilt: {
+    threshold: 14,
+    hysteresis: 5,
+  },
+
   // Touch Teacher (§9): until 3 GREATs (localStorage flag) or the end of island 1.
   teacher: {
     holdColor: '#5CFF7A',
     letGoColor: '#FFB020',
-    greats: 3,
+    holdTau: 5, // s: memory of the hold / release skill estimates
+    master: 0.75, // hold / release share that counts as mastered (their hints fade out)
+    landK: 0.2, // EMA weight of one judged landing
+    landMaster: 0.55, // landing quality (GREAT 1, GOOD 0.5) that hides the "touch down" line
+    masterTime: 4, // s with every skill mastered: the teacher retires for good
     fade: 1.2, // s
     lookAhead: 0.18, // s of path ahead used for the advice
     slope: 0.08, // |h'| above which the advice is shown
@@ -538,18 +594,21 @@ export const CONFIG = {
   audio: {
     master: 0.8,
     sfx: 0.9,
-    wind: 0.32, // wind loop at full speed
-    windDive: 1.45, // louder while diving
+    wind: 0.2, // wind loop at full speed (brown noise, lowpassed)
+    windDive: 1.15, // a little louder while diving
     windFullSpeed: 2600, // px/s
-    windCut0: 350, // wind band centre at rest / at full speed
-    windCut1: 2600,
-    bellBase: 783.99, // GREAT bell (G5), +1 pentatonic step per streak step
+    windCut0: 260, // wind lowpass at rest / at full speed
+    windCut1: 1400,
+    bellBase: 659.25, // GREAT chime (E5), +1 pentatonic step per streak step ...
+    bellSteps: 6, // ... cycling inside this many steps (stays pleasant on long chains)
+    bell: 0.14,
+    musicBpm: 104, // generated soundtrack (used when there is no src/audio/music.mp3)
     coinBase: 1046.5, // coin blip (C6), rising within a chain
     shimmer: 0.045, // Fever loop level
-    music: 0.45, // optional src/audio/music.mp3
+    music: 0.32, // soundtrack level (music.mp3 or the generated one)
     musicCut: [700, 1200, 2400, 6000, 18000], // music lowpass per speed tier
-    flightWind: 0.4, // wind loop during the island jump (opens up)
-    flightWindCut: 3400,
+    flightWind: 0.24, // wind loop during the island jump (opens up)
+    flightWindCut: 1900,
     sting: 0.16, // soaring chord at the apex
     landChord: 0.2, // bright chord on the island touchdown
     bump: 0.35, // bump thump on the descent
