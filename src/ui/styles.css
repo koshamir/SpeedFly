@@ -531,6 +531,7 @@ button {
   font-size: calc(var(--u) * 28px);
 }
 .set-row input[type='range'] {
+  pointer-events: auto;
   flex: 1;
   height: calc(var(--u) * 48px);
 }
@@ -591,6 +592,7 @@ button {
   gap: calc(var(--u) * 18px);
 }
 .race-card {
+  pointer-events: auto;
   width: 82%;
   padding: calc(var(--u) * 18px) calc(var(--u) * 24px);
   border-radius: calc(var(--u) * 26px);

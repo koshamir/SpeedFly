@@ -1,0 +1,25 @@
+// npx tsx tools/ui-taps.ts — real taps through the menus (title -> RACE -> track -> countdown -> playing).
+import { launch } from './browser';
+import { createServer } from 'vite';
+const server = await createServer({ server: { port: 5198, host: '127.0.0.1' }, logLevel: 'error' });
+await server.listen();
+const browser = await launch();
+const ctx = await browser.newContext({ viewport: { width: 405, height: 720 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+await ctx.addInitScript("localStorage.setItem('sunsetdash.tutorialSeen','1')");
+const page = await ctx.newPage();
+const errs: string[] = [];
+page.on('pageerror', (e) => errs.push(e.message));
+await page.goto(server.resolvedUrls!.local[0]);
+await page.waitForFunction('!!window.__sd');
+await page.tap('.btn-race');
+await page.waitForTimeout(300);
+console.log('after RACE tap:', await page.evaluate('window.__sd.state()'));
+await page.tap('.race-card >> nth=1');
+await page.waitForTimeout(500);
+console.log('after track tap:', await page.evaluate('window.__sd.state()'), 'race:', await page.evaluate('!!window.__sd.race()'));
+await page.waitForTimeout(3500);
+console.log('after countdown:', await page.evaluate('window.__sd.state()'));
+await page.screenshot({ path: 'shots/75-race-tapped.png' });
+console.log('errors:', errs);
+await browser.close();
+await server.close();
