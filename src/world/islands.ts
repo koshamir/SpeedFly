@@ -1,7 +1,7 @@
 import { CONFIG } from '../config';
 import { mulberry32, type Rng } from '../core/rng';
 import { COIN_BLUE, COIN_GOLD, type Coins } from './collectibles';
-import { segCross, segD1, segY, widen, type Terrain, type TerrainGen } from './terrain';
+import { segCross, segEval, segMaxSlope, type Terrain, type TerrainGen } from './terrain';
 
 export interface Island {
   k: number;
@@ -11,6 +11,11 @@ export interface Island {
   wx0: number; // water surface span
   wx1: number;
   landingX: number; // landing-hill peak: passing it fires island{k+1}
+  launchX0: number; // takeoffs in [launchX0, wx0] start the scripted island flight
+  targetX: number; // where the island flight lands (on the landing slope)
+  targetY: number;
+  style: number; // index into CONFIG.islands.styles
+  sharp: number; // segment sharpness of this island's hills
   hillK0: number; // global key-point index range [hillK0, hillK1) of the island's hills (valley, peak, ...)
   hillK1: number;
   surfaceY: number;
@@ -29,29 +34,27 @@ export function islandShape(k: number): { hills: number; sx: number; sy: number 
   };
 }
 
-/** Gap from ballistics: launch from the lip at launchAngle with vT(k) under gRelease. */
-export function islandGap(k: number): { vT: number; R: number; rise: number; water: number } {
+export function islandStyle(k: number): (typeof CONFIG.islands.styles)[number] {
+  const S = CONFIG.islands.styles;
+  return S[(k - 1) % S.length];
+}
+
+/** Horizontal flight distance of island k's scripted jump. */
+export function flightDx(k: number): number {
   const I = CONFIG.islands;
-  const vT = Math.min(I.vTBase + I.vTStep * (k - 1), I.vTMax);
-  const a = (I.launchAngle * Math.PI) / 180;
-  const vx = vT * Math.cos(a), vy = vT * Math.sin(a), g = CONFIG.physics.gRelease;
-  const drop = I.lipY - (I.landingPeakY + I.landingAim);
-  const t = (vy + Math.sqrt(vy * vy + 2 * g * drop)) / g; // descending crossing
-  const R = vx * t;
-  const rise = Math.max(I.riseMin, I.riseFrac * (R - I.cliffDx));
-  const water = Math.max(I.waterMin, R - I.cliffDx - rise);
-  return { vT, R, rise, water };
+  return Math.min(I.flightDx + I.flightDxStep * (k - 1), I.flightDxMax);
 }
 
 /** Whole-world island for ?terrain=reference (palette only). */
 export function referenceIsland(): Island {
   return {
     k: 1, x0: -Infinity, x1: Infinity, lipX: Infinity, wx0: Infinity, wx1: Infinity, landingX: Infinity,
+    launchX0: Infinity, targetX: Infinity, targetY: 0, style: 0, sharp: 1,
     hillK0: Infinity, hillK1: Infinity, surfaceY: 0, palette: 0, bandMode: 0, bandWidth: CONFIG.islands.bandWidthMin, bandSeed: 0,
   };
 }
 
-// Island k = N hills, then launch valley -> ramp -> lip -> cliff -> water -> landing hill.
+// Island k = N hills, then a big descent with bumps -> launch valley -> ramp -> lip -> cliff -> sea -> landing hill.
 // Separate RNG streams: r = terrain shape, rc = coins and looks.
 export class IslandGen implements TerrainGen {
   private readonly r: Rng;
@@ -62,6 +65,7 @@ export class IslandGen implements TerrainGen {
   private hills = 0;
   private sx = 1;
   private sy = 1;
+  private sharp = 1;
   private totalHills = 0;
   private arcId = 0;
   private lastSpecial = false;
@@ -83,12 +87,15 @@ export class IslandGen implements TerrainGen {
     const I = CONFIG.islands;
     this.k++;
     const s = islandShape(this.k);
+    const st = islandStyle(this.k);
     this.hills = s.hills;
-    this.sx = s.sx;
-    this.sy = s.sy;
+    this.sx = s.sx * st.w;
+    this.sy = s.sy * st.h;
+    this.sharp = st.sharp;
     this.hill = 0;
     this.island = {
       k: this.k, x0, x1: Infinity, lipX: Infinity, wx0: Infinity, wx1: Infinity, landingX: Infinity,
+      launchX0: Infinity, targetX: Infinity, targetY: 0, style: (this.k - 1) % I.styles.length, sharp: st.sharp,
       hillK0: Infinity, hillK1: Infinity,
       surfaceY: I.waterY + I.waterSurface,
       palette: (this.basePalette + this.k - 1) % I.paletteCount,
@@ -104,14 +111,14 @@ export class IslandGen implements TerrainGen {
     else this.addEnd(t);
   }
 
-  /** One hill = a valley then the next peak (key points), cosine-interpolated by the terrain. */
+  /** One hill = a valley then the next peak (key points), shaped segments between them. */
   private addHill(t: Terrain): void {
-    const Hc = CONFIG.hills, I = CONFIG.islands, r = this.r;
+    const Hc = CONFIG.hills, I = CONFIG.islands, r = this.r, q = this.sharp;
     const px = t.lastX, py = t.lastY;
     if (this.hill === 0) this.island.hillK0 = t.base + t.n;
     const onboard = this.k === 1 && this.hill < I.onboardHills;
     // fixed number of draws per hill: the stream stays aligned whatever the branches/mode
-    const rDeep = r(), rWide = r(), rW1 = r(), rW2 = r(), rD = r(), rP = r();
+    const rDeep = r(), rWide = r(), rW = r(), rH = r(), rP = r(), rZ = r();
     const prevSpecial = this.lastSpecial && Hc.noRepeat > 0;
     const deep = !onboard && !prevSpecial && rDeep < Hc.deepChance;
     const wide = !onboard && !prevSpecial && !deep && rWide < Hc.wideChance;
@@ -119,85 +126,118 @@ export class IslandGen implements TerrainGen {
     const prog = this.hills > 1 ? this.hill / (this.hills - 1) : 0;
     const grow = Hc.growFrom + (Hc.growTo - Hc.growFrom) * prog;
     const jit = (z: number, a: number): number => 1 + a * (2 * z - 1);
-    const hw = Hc.halfW * this.sx * (wide ? Hc.wideMul : 1);
-    const w1 = hw * jit(rW1, Hc.halfWJitter);
-    const w2 = Hc.symmetric > 0 ? w1 : hw * jit(rW2, Hc.halfWJitter);
+    // width: peak -> peak; the valley sits in the middle (symmetric bowl)
+    const half = (Hc.width * this.sx * (wide ? Hc.wideMul : 1) * jit(rW, Hc.widthJitter)) / 2;
     let vy: number, ny: number;
     if (Hc.mode === 1) {
       // zigzag (haqu): down by dy from the previous point, then up by an independent dy; clamped
       const dyS = this.sy * grow * (onboard ? I.onboardH : 1);
-      vy = Math.max(Hc.zzMinY, py - (Hc.zzMinDY + rD * Hc.zzRangeDY) * dyS);
-      ny = Math.min(Hc.zzMaxY, vy + (Hc.zzMinDY + rP * Hc.zzRangeDY) * dyS);
+      vy = Math.max(Hc.zzMinY, py - (Hc.zzMinDY + rH * Hc.zzRangeDY) * dyS);
+      ny = Math.min(Hc.zzMaxY, vy + (Hc.zzMinDY + rZ * Hc.zzRangeDY) * dyS);
     } else {
-      // peaks: level peaks, each valley its own depth below them
-      const depth = Hc.depth * this.sy * grow * (deep ? Hc.deepMul : 1) * (onboard ? I.onboardH : 1) * jit(rD, Hc.depthJitter);
+      // peaks: level peaks, each valley its own drop below the lower neighbour peak
       ny = Hc.peakY + Hc.peakJitter * (2 * rP - 1);
-      vy = Math.min(py, ny) - depth;
+      const h = Hc.height * this.sy * grow * (deep ? Hc.deepMul : 1) * (onboard ? I.onboardH : 1) * jit(rH, Hc.heightJitter);
+      vy = Math.min(py, ny) - h;
     }
-    const vx = px + widen(w1, py, vy, Hc.maxSlope);
-    t.push(vx, vy);
-    this.downslopeCoins(px, py, vx, vy);
+    // safety: never widen (that would couple height and width) — lower the valley instead
+    const lim = Hc.slopeLimit;
+    const maxDrop = (lim * half) / segMaxSlope(1, 1, q);
+    if (Math.max(py, ny) - vy > maxDrop) vy = Math.max(py, ny) - maxDrop;
+    const vx = px + half;
+    t.push(vx, vy, q);
+    this.downslopeCoins(px, py, vx, vy, q);
     this.blueCoin(vx, vy);
-    t.push(vx + widen(w2, vy, ny, Hc.maxSlope), ny);
+    t.push(vx + half, ny, q);
     this.hill++;
     this.totalHills++;
   }
 
+  /** Island end + the next island's landing hill. Geometry is placed from the flight script's numbers. */
   private addEnd(t: Terrain): void {
-    const I = CONFIG.islands;
-    const px = t.lastX, py = t.lastY;
+    const I = CONFIG.islands, Hc = CONFIG.hills;
+    const isl = this.island;
     this.island.hillK1 = t.base + t.n;
-    const lvx = px + widen(I.launchValleyDx, py, I.launchValleyY);
-    t.push(lvx, I.launchValleyY);
+    let x = t.lastX, y = t.lastY;
+    // summit: the island's last and highest hill
+    const summitY = Hc.peakY + I.summitRise;
+    x += I.summitW;
+    t.push(x, summitY);
+    y = summitY;
+    const x0 = x, y0 = y;
+    // big descent with bumps: n + 1 stretches, a bump between them
+    const nb = Math.max(0, Math.round(I.bumps));
+    const valleyY = summitY - I.descentDrop;
+    for (let i = 0; i <= nb; i++) {
+      const yv = y0 - ((y0 - valleyY) * (i + 1)) / (nb + 1);
+      x += I.descentSegW;
+      t.push(x, yv);
+      y = yv;
+      if (i < nb) {
+        x += I.bumpW;
+        y += I.bumpRise;
+        t.push(x, y);
+      }
+    }
+    const lvx = x;
+    // ramp -> lip
+    const lipY = Hc.peakY + I.lipRise;
     const lipX = lvx + I.rampDx;
-    t.push(lipX, I.lipY);
+    t.push(lipX, lipY);
+    // cliff -> sea
     const w0 = lipX + I.cliffDx;
     t.push(w0, I.waterY);
-    const gap = islandGap(this.k);
-    const w1 = w0 + gap.water;
+    // landing slope: target at landAt of it, target = lip + flightDx
+    const landPeakY = Hc.peakY + I.landPeakRise;
+    const landValleyY = landPeakY - I.landDrop;
+    const tx = lipX + flightDx(this.k);
+    // x on the landing slope at share landAt (monotonic in x for a cosine)
+    const xs = segCross(0, landPeakY, I.landW, landValleyY, landPeakY - I.landAt * (landPeakY - landValleyY));
+    const landX = tx - xs;
+    const w1 = Math.max(w0 + 200, landX - I.landRise);
     t.push(w1, I.waterY);
-    const landX = w1 + gap.rise;
-    t.push(landX, I.landingPeakY);
+    t.push(landX, landPeakY);
+    t.push(landX + I.landW, landValleyY);
+    // a short rise back to the peak level: the next island's hills start from a peak
+    t.push(landX + I.landW + (Hc.width * 0.5), Hc.peakY);
 
-    const isl = this.island;
     isl.lipX = lipX;
-    isl.wx0 = segCross(lipX, I.lipY, w0, I.waterY, isl.surfaceY);
-    isl.wx1 = segCross(w1, I.waterY, landX, I.landingPeakY, isl.surfaceY);
+    isl.launchX0 = lvx + I.launchZone * I.rampDx;
+    isl.targetX = landX + xs;
+    isl.targetY = segEval(landX, landPeakY, landX + I.landW, landValleyY, 1, isl.targetX).y;
+    isl.wx0 = segCross(lipX, lipY, w0, I.waterY, isl.surfaceY);
+    isl.wx1 = segCross(w1, I.waterY, landX, landPeakY, isl.surfaceY);
     isl.landingX = landX;
     isl.x1 = (isl.wx0 + isl.wx1) / 2;
     t.addWater(isl.wx0, isl.wx1);
-    this.launchCoins(px, py, lvx, lipX);
+    this.launchCoins(x0, y0, lvx, valleyY, lipX, lipY);
     this.begin(isl.x1);
   }
 
-  private coinAt(x0: number, y0: number, x1: number, y1: number, x: number, lift: number, arc: number): void {
-    const y = segY(x0, y0, x1, y1, x), d1 = segD1(x0, y0, x1, y1, x), L = Math.hypot(1, d1);
+  private coinAt(x0: number, y0: number, x1: number, y1: number, x: number, lift: number, arc: number, q = 1): void {
+    const e = segEval(x0, y0, x1, y1, q, x), y = e.y, d1 = e.d1, L = Math.hypot(1, d1);
     this.coins.push(x - (d1 / L) * lift, y + lift / L, COIN_GOLD, arc);
   }
 
   /** Gold arc along a downslope (peak -> valley). */
-  private downslopeCoins(px: number, py: number, vx: number, vy: number): void {
+  private downslopeCoins(px: number, py: number, vx: number, vy: number, q = 1): void {
     const K = CONFIG.coins, rc = this.rc;
     if (rc() >= K.hillChance) return;
     const n = K.arcMin + Math.floor(rc() * (K.arcMax - K.arcMin + 1));
     const id = this.arcId++;
     for (let i = 0; i < n; i++) {
       const x = px + (vx - px) * (K.arcT0 + ((K.arcT1 - K.arcT0) * i) / (n - 1));
-      this.coinAt(px, py, vx, vy, x, K.lift, id);
+      this.coinAt(px, py, vx, vy, x, K.lift, id, q);
     }
   }
 
-  /** Long arc: mid-descent into the launch valley, over the valley and up the ramp. */
-  private launchCoins(px: number, py: number, lvx: number, lipX: number): void {
-    const K = CONFIG.coins, I = CONFIG.islands, rc = this.rc;
+  /** Long arc over the ramp (launch valley -> lip). */
+  private launchCoins(_x0: number, _y0: number, lvx: number, lvy: number, lipX: number, lipY: number): void {
+    const K = CONFIG.coins, rc = this.rc;
     const n = K.launchMin + Math.floor(rc() * (K.launchMax - K.launchMin + 1));
     const id = this.arcId++;
-    const xa = px + (lvx - px) * K.launchT0, xb = lvx + (lipX - lvx) * K.launchT1;
-    for (let i = 0; i < n; i++) {
-      const x = xa + ((xb - xa) * i) / (n - 1);
-      if (x < lvx) this.coinAt(px, py, lvx, I.launchValleyY, x, K.lift, id);
-      else this.coinAt(lvx, I.launchValleyY, lipX, I.lipY, x, K.lift, id);
-    }
+    const xa = lvx + (lipX - lvx) * 0.05, xb = lvx + (lipX - lvx) * K.launchT1;
+    for (let i = 0; i < n; i++) this.coinAt(lvx, lvy, lipX, lipY, xa + ((xb - xa) * i) / (n - 1), K.lift, id);
   }
 
   private blueCoin(vx: number, vy: number): void {

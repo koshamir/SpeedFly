@@ -1,4 +1,4 @@
-import type { PhysicsConfig } from '../config';
+import { CONFIG, type PhysicsConfig } from '../config';
 import type { LandKind } from '../core/events';
 import type { Terrain, TerrainCursor } from '../world/terrain';
 
@@ -21,7 +21,8 @@ export class Bird {
   x = 0; // circle center
   y = 0;
   u = 0; // contact x on the surface (valid while grounded; the last contact guess in the air)
-  g = 0; // current gravity (eases toward gDive/gRelease when diveRamp > 0)
+  dive = 0; // 0 = released ... 1 = diving (eases with diveRamp); gravities interpolate on it
+  flyG = 0; // > 0: scripted island flight (pure ballistic with this gravity, input ignored) until touchdown
   v = 0; // speed along the center path (grounded)
   vx = 0;
   vy = 0;
@@ -53,7 +54,8 @@ export class Bird {
     this.x = x - (R * cur.d1) / L;
     this.y = cur.y + R / L;
     this.v = v;
-    this.g = g;
+    this.dive = g > 0 ? 0 : 0;
+    this.flyG = 0;
     this.vx = 0;
     this.vy = 0;
     this.grounded = true;
@@ -71,7 +73,8 @@ export class Bird {
     this.x = o.x;
     this.y = o.y;
     this.u = o.u;
-    this.g = o.g;
+    this.dive = o.dive;
+    this.flyG = o.flyG;
     this.v = o.v;
     this.vx = o.vx;
     this.vy = o.vy;
@@ -105,9 +108,12 @@ function contactFor(cx: number, guess: number, H: TerrainCursor, R: number): num
 export function step(b: Bird, held: boolean, H: TerrainCursor, T: Terrain, C: PhysicsConfig): void {
   b.ev = EV_NONE;
   const dt = C.dt, R = C.birdRadius;
-  const gT = held ? C.gDive : C.gRelease;
-  b.g = C.diveRamp > 0 ? b.g + (gT - b.g) * (1 - Math.exp(-dt / C.diveRamp)) : gT;
-  const g = b.g;
+  if (b.flyG > 0) held = false; // scripted island flight: input is ignored until touchdown
+  const dT = held ? 1 : 0;
+  b.dive = C.diveRamp > 0 ? b.dive + (dT - b.dive) * (1 - Math.exp(-dt / C.diveRamp)) : dT;
+  const s = b.dive;
+  const g = C.gRelease + (C.gDive - C.gRelease) * s; // ground gravity
+  const gA = C.gAirRelease + (C.gAirDive - C.gAirRelease) * s; // air gravity
 
   if (b.grounded) {
     H.sample(b.u);
@@ -130,7 +136,8 @@ export function step(b: Bird, held: boolean, H: TerrainCursor, T: Terrain, C: Ph
       b.ev = EV_TAKEOFF;
     } else {
       const water = T.isWater(b.u);
-      v += (-g * ty - C.drag * v * Math.abs(v) - (water ? C.muWater : C.muGround) * Math.max(0, N)) * dt;
+      const over = v - C.vSoft;
+      v += (-g * ty - C.drag * v * Math.abs(v) - (water ? C.muWater : C.muGround) * Math.max(0, N) - (over > 0 ? C.vSoftK * over * over : 0)) * dt;
       const sMin = water ? C.sMinWater : C.sMin;
       if (v < sMin) v = sMin;
       b.u += ((v * tx) / shrink) * dt;
@@ -145,8 +152,25 @@ export function step(b: Bird, held: boolean, H: TerrainCursor, T: Terrain, C: Ph
 
   // air: exact for constant acceleration over the step (x += v dt + a dt^2 / 2)
   const sp = Math.hypot(b.vx, b.vy);
-  const lift = !held && b.vy < 0 ? C.airLift * g : 0; // wings open while falling
-  const ax = -C.drag * b.vx * sp, ay = lift - g - C.drag * b.vy * sp;
+  let ax: number, ay: number;
+  if (b.flyG > 0) {
+    ax = 0;
+    ay = -b.flyG; // scripted: exact parabola to the landing target
+  } else {
+    const lift = !held && b.vy < 0 ? C.airLift * gA : 0; // wings open while falling
+    ax = -C.drag * b.vx * sp;
+    ay = lift - gA - C.drag * b.vy * sp;
+    const over = sp - C.vSoft; // soft speed limit, along the velocity
+    if (over > 0 && sp > 0) {
+      const a = C.vSoftK * over * over;
+      ax -= (a * b.vx) / sp;
+      ay -= (a * b.vy) / sp;
+    }
+    const cap = C.fallCap + (C.fallCapDive - C.fallCap) * s; // parachute: terminal fall speed
+    if (b.vy < -cap) ay += (-cap - b.vy) / C.fallTau;
+    const above = b.y - (CONFIG.hills.peakY + C.ceilAlt); // soft ceiling while rising
+    if (above > 0 && b.vy > 0) ay -= C.ceilK * above;
+  }
   b.x += b.vx * dt + 0.5 * ax * dt * dt;
   b.y += b.vy * dt + 0.5 * ay * dt * dt;
   b.vx += ax * dt;
@@ -170,12 +194,15 @@ export function step(b: Bird, held: boolean, H: TerrainCursor, T: Terrain, C: Ph
   b.y = yc;
   b.grounded = true;
   const water = T.isWater(u);
-  if (b.airT < C.hopMinAir && b.airAlt < C.hopMinAlt) {
+  const scripted = b.flyG > 0;
+  b.flyG = 0;
+  if (!scripted && b.airT < C.hopMinAir && b.airAlt < C.hopMinAlt) {
     b.v = Math.max(water ? C.sMinWater : C.sMin, vt);
     // a graze inside the takeoff step is no event at all; a short skim is a silent hop
     b.ev = b.ev === EV_TAKEOFF ? EV_NONE : EV_HOP;
     return;
   }
+  const real = scripted || b.airT >= C.judgeMinAir || b.airAlt >= C.judgeMinAlt;
   let kind: LandKind = 'ok';
   if (water) {
     kind = 'splash';
@@ -183,15 +210,23 @@ export function step(b: Bird, held: boolean, H: TerrainCursor, T: Terrain, C: Ph
     b.v = Math.max(C.sMinWater, vt);
   } else {
     const downhill = d1 <= C.greatSlope;
-    if (downhill && ang <= 2 * C.greatAngle)
+    if (downhill && ang <= C.assistAngle)
       vt = Math.max(vt, sp * Math.cos((ang * (1 - C.landingAssist) * Math.PI) / 180));
+    if (!real) {
+      // a skim (short, low flight): physics as usual, but it is not judged and the streak is untouched
+      b.v = Math.max(C.sMin, vt);
+      b.ev = EV_HOP;
+      return;
+    }
     if (downhill && ang <= C.greatAngle) {
       kind = 'great';
       vt *= C.greatBoost;
       b.streak++;
+    } else if ((downhill && ang <= C.okAngle) || (!downhill && ang <= C.greatAngle)) {
+      kind = 'ok'; // GOOD: the streak is kept (no +1)
     } else {
+      kind = 'bad';
       b.streak = 0;
-      if (ang > C.okAngle || (!downhill && ang > C.greatAngle)) kind = 'bad';
     }
     b.v = Math.max(C.sMin, vt);
   }

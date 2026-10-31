@@ -15,6 +15,10 @@ export interface GameEvents {
   skyTouch: { x: number; y: number };
   coin: { type: CoinType; x: number; y: number; chain: number };
   island: { index: number };
+  // scripted island jump: fires at takeoff from the ramp; the flight is an exact parabola that lands at
+  // (targetX, targetY) after `duration` s with apex (apexX, apexY). Camera/FX may choreograph on it.
+  islandLaunch: { k: number; x: number; y: number; targetX: number; targetY: number; apexX: number; apexY: number; duration: number; speed: number };
+  islandLand: { k: number; kind: LandKind; x: number; y: number; speed: number };
   speedTier: { tier: number; prev: number };
   caught: { x: number };
   points: { amount: number; x: number; y: number };

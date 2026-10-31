@@ -4,37 +4,52 @@
 /** Physics presets: each overrides CONFIG.physics. Pick with CONFIG.physicsPreset / applyPreset(). */
 export const PHYSICS_PRESETS = {
   // v1 numbers on the v2 model
-  classic: { gRelease: 1000, gDive: 3000, diveRamp: 0, airLift: 0, muGround: 0.03, drag: 0.00004, greatBoost: 1.05, landingAssist: 0.35, greatAngle: 15 },
-  // best guess at the Tiny Wings feel: softer dive onset, slight glide while falling, more forgiving landings
-  smooth: { gRelease: 1000, gDive: 3200, diveRamp: 0.05, airLift: 0.12, muGround: 0.02, drag: 0.000035, greatBoost: 1.08, landingAssist: 0.45, greatAngle: 17 },
-  // fastest acceleration, big speed payoff for good timing
-  rush: { gRelease: 900, gDive: 3600, diveRamp: 0.03, airLift: 0, muGround: 0.015, drag: 0.00003, greatBoost: 1.1, landingAssist: 0.5, greatAngle: 17 },
-  // long floaty flights, slow dive onset
-  floaty: { gRelease: 800, gDive: 3000, diveRamp: 0.08, airLift: 0.25, muGround: 0.02, drag: 0.000035, greatBoost: 1.06, landingAssist: 0.45, greatAngle: 18 },
+  classic: { assistAngle: 30, judgeMinAir: 0, judgeMinAlt: 0, greatSlope: -0.12, gRelease: 1000, gDive: 3000, gAirRelease: 1000, gAirDive: 3000, diveRamp: 0, airLift: 0, muGround: 0.03, drag: 0.00004, greatBoost: 1.05, landingAssist: 0.35, greatAngle: 15, okAngle: 28, vSoft: 99999, vSoftK: 0, fallCap: 99999, fallCapDive: 99999, ceilAlt: 99999, ceilK: 0 },
+  // v2 guess: softer dive onset, slight glide while falling
+  smooth: { assistAngle: 34, judgeMinAir: 0.25, judgeMinAlt: 40, greatSlope: -0.05, gRelease: 1000, gDive: 3200, gAirRelease: 1000, gAirDive: 3200, diveRamp: 0.05, airLift: 0.12, muGround: 0.02, drag: 0.000035, greatBoost: 1.08, landingAssist: 0.45, greatAngle: 17, okAngle: 28, vSoft: 99999, vSoftK: 0, fallCap: 99999, fallCapDive: 99999, ceilAlt: 99999, ceilK: 0 },
+  // v4 Tiny Wings feel: hard pump on the ground, floaty air with a parachute fall, quick dive,
+  // soft speed limit and soft ceiling -> fast to get high, comfortable to stay high, never runaway
+  tw: { assistAngle: 60, judgeMinAir: 0.25, judgeMinAlt: 40, greatSlope: -0.05, gRelease: 1050, gDive: 3600, gAirRelease: 900, gAirDive: 3400, diveRamp: 0.03, airLift: 0, muGround: 0.012, drag: 0.00002, greatBoost: 1.06, landingAssist: 0.5, greatAngle: 20, okAngle: 32, vSoft: 1700, vSoftK: 0.004, fallCap: 950, fallCapDive: 2000, ceilAlt: 950, ceilK: 2.2 },
+  rush: { assistAngle: 34, judgeMinAir: 0.25, judgeMinAlt: 40, greatSlope: -0.05, gRelease: 900, gDive: 3600, gAirRelease: 900, gAirDive: 3600, diveRamp: 0.03, airLift: 0, muGround: 0.015, drag: 0.00003, greatBoost: 1.1, landingAssist: 0.5, greatAngle: 17, okAngle: 28, vSoft: 99999, vSoftK: 0, fallCap: 99999, fallCapDive: 99999, ceilAlt: 99999, ceilK: 0 },
+  floaty: { assistAngle: 36, judgeMinAir: 0.25, judgeMinAlt: 40, greatSlope: -0.05, gRelease: 800, gDive: 3000, gAirRelease: 800, gAirDive: 3000, diveRamp: 0.08, airLift: 0.25, muGround: 0.02, drag: 0.000035, greatBoost: 1.06, landingAssist: 0.45, greatAngle: 18, okAngle: 28, vSoft: 99999, vSoftK: 0, fallCap: 99999, fallCapDive: 99999, ceilAlt: 99999, ceilK: 0 },
 };
 export type PresetName = keyof typeof PHYSICS_PRESETS;
 
 export const CONFIG = {
-  physicsPreset: 'smooth' as PresetName,
+  physicsPreset: 'tw' as PresetName,
 
   physics: {
     dt: 1 / 240, // fixed step (s)
-    gRelease: 1000, // gravity, finger up (ground + air)
-    gDive: 3000, // gravity, finger down (ground + air)
+    gRelease: 1000, // GROUND gravity, finger up (how much an upslope brakes)
+    gDive: 3000, // GROUND gravity, finger down (how hard a downslope pumps)
+    gAirRelease: 1000, // AIR gravity, finger up (how floaty a flight is)
+    gAirDive: 3000, // AIR gravity, finger down (how fast a tap pulls the bird down)
     drag: 0.00004, // quadratic drag: a = drag * v^2
     muGround: 0.03, // ground friction: a = mu * N
     sMin: 150, // min tangential ground speed (bird flaps, never stops)
     hopMinAir: 0.12, // flights shorter (s) AND lower (px) than this are micro-hops: no events
     hopMinAlt: 10,
-    greatAngle: 15, // deg between velocity and tangent at touchdown
-    greatSlope: -0.12, // h'(x) must be <= this for GREAT
-    okAngle: 28, // worse = BAD
+    // landing judge (only for REAL flights: airT >= judgeMinAir OR altitude >= judgeMinAlt; shorter = silent skim)
+    judgeMinAir: 0.25,
+    judgeMinAlt: 40,
+    greatAngle: 15, // deg between velocity and the slope at touchdown: <= this on a downslope = GREAT (streak +1)
+    greatSlope: -0.05, // h'(x) <= this counts as a downslope
+    okAngle: 28, // <= this = GOOD (streak kept); worse, or an upslope hit steeper than greatAngle = BAD (streak 0)
     greatBoost: 1.05,
-    landingAssist: 0.35,
+    landingAssist: 0.35, // downslope landings within assistAngle keep |v|*cos(angle*(1-assist)) instead of the plain tangential part
+    assistAngle: 30, // deg
     birdRadius: 22, // the bird is a circle: state x,y = its CENTER (= sprite center)
     diveRamp: 0, // s: gravity eases toward the held/released value (0 = instant switch)
     airLift: 0, // share of gravity cancelled while released AND falling (wings open, glide)
     takeoffMargin: 0, // leave the ground only when N < -margin * g (0 = pure physics; >0 = stickier crests)
+    // soft limits ("invisible" damping, never a hard clamp)
+    vSoft: 99999, // above this speed an extra drag vSoftK * (v - vSoft)^2 bites (ground + air)
+    vSoftK: 0,
+    fallCap: 99999, // terminal FALL speed while released (parachute): steady descents, landings at a matching angle
+    fallCapDive: 99999, // terminal fall speed while diving
+    fallTau: 0.12, // s: how fast the fall speed is pulled back to the cap
+    ceilAlt: 99999, // height above hills.peakY where the soft ceiling starts (only while rising)
+    ceilK: 0, // extra downward accel per px above the ceiling
     muWater: 0.25,
     sMinWater: 120,
     startSpeed: 300,
@@ -69,61 +84,78 @@ export const CONFIG = {
   },
 
   islands: {
-    hillsBase: 16,
-    hillsStep: 4,
-    hillsMax: 40,
-    sxStep: 0.05, // per-island width scale of the hills (hills.halfW)
+    hillsBase: 24, // hills on island 1 (x1.5 vs v3)
+    hillsStep: 6,
+    hillsMax: 60,
+    sxStep: 0.05, // per-island scale of hills.width
     sxMax: 1.4,
-    syStep: 0.07, // per-island height scale (hills.depth / zigzag dy)
-    syMax: 1.5,
-    onboardHills: 3, // first hills of island 1: no deep/wide valleys, depth x onboardH
+    syStep: 0.06, // per-island scale of hills.height
+    syMax: 1.45,
+    onboardHills: 3, // first hills of island 1: no deep/wide valleys, height x onboardH
     onboardH: 0.7,
-    launchValleyY: -120,
-    launchValleyDx: 420,
-    lipY: 380,
-    rampDx: 720,
-    waterY: -220,
-    cliffDx: 260,
-    landingPeakY: 260,
-    landingAim: 60, // R is measured where the trajectory crosses landingPeakY + landingAim
-    launchAngle: 32, // deg
-    vTBase: 950,
-    vTStep: 110,
-    vTMax: 2000,
-    riseMin: 420,
-    riseFrac: 0.55,
-    waterMin: 150,
+    // island end: summit -> one big descent with bumps -> launch valley -> ramp -> lip -> cliff -> sea -> landing hill
+    summitRise: 180, // the last hill climbs this much above hills.peakY
+    summitW: 560, // width of the climb to the summit
+    descentDrop: 900, // summit -> launch valley
+    descentSegW: 600, // width of each descending stretch
+    bumps: 2, // bumps on the descent
+    bumpRise: 50, // height of a bump
+    bumpW: 200, // width of a bump's rise (its fall is part of the next stretch)
+    rampDx: 1150, // launch valley -> lip
+    lipRise: 200, // lip height above hills.peakY
+    cliffDx: 320,
+    waterY: -260,
     waterSurface: 14, // visible water surface above waterY
+    // scripted island flight (takeoff from the upper ramp / lip / cliff edge)
+    launchZone: 0.7, // the flight script arms after this share of the ramp (its upper, convex part)
+    launchAngle: 48, // deg
+    launchClear: 10, // deg: the launch is always at least this much steeper than the ramp under the bird
+    vLaunchMin: 1400, // slower birds are lifted to this launch speed
+    vLaunchMax: 2300, // faster ones are trimmed: speed only changes the flight TIME, never the landing spot
+    flightDx: 3300, // horizontal distance takeoff -> landing target on island k=1
+    flightDxStep: 250,
+    flightDxMax: 4600,
+    landRise: 640, // sea -> landing peak
+    landPeakRise: 260, // landing peak above hills.peakY
+    landDrop: 520, // landing peak -> first valley of the new island
+    landW: 900, // width of the landing slope
+    landAt: 0.5, // landing target: share of the landing slope (0.5 = steepest point)
     bandWidthMin: 70,
     bandWidthMax: 110,
     paletteCount: 6,
+    // per-island terrain character, cycled: island 1 = styles[0], island 2 = styles[1], ...
+    // sharp >= 1: pointier peaks + flatter valleys (1 = classic cosine). w/h multiply hills.width/height.
+    styles: [
+      { name: 'rolling', sharp: 1.0, w: 1.0, h: 1.0 },
+      { name: 'pointy', sharp: 1.35, w: 1.05, h: 0.95 },
+      { name: 'long', sharp: 1.0, w: 1.22, h: 1.05 },
+      { name: 'steep', sharp: 1.2, w: 0.95, h: 1.12 },
+    ],
   },
 
-  // Hills (island mode). Key points alternate PEAK / VALLEY; cosine interpolation between them
-  // (Tikhonov / haqu tiny-wings principle). Two generators:
-  //  mode 0 'peaks' (default, Tiny Wings look): peaks sit at ~one level, every valley has its own
-  //         depth; now and then a valley is deep (bigger pump) or wide (longer, softer slopes).
-  //  mode 1 'zigzag' (haqu/Tikhonov original): each key point = previous +- (minDY..minDY+rangeDY),
-  //         clamped to [zzMinY, zzMaxY] -> peaks drift up and down (random walk).
-  // halfW = horizontal distance peak -> valley; depth = peak -> valley drop. Per-island scale:
-  // islands.sxStep/sxMax (halfW), islands.syStep/syMax (depth / dy).
+  // Hills (island mode). Key points alternate PEAK / VALLEY, cosine-shaped segments between them
+  // (Tikhonov / haqu tiny-wings principle). Every parameter changes ONE thing:
+  //   width  = peak-to-peak distance (each valley is a symmetric bowl of this width)
+  //   height = peak-to-valley drop
+  //   peakY  = level of the peaks; the slope angle is a readout (pi*height/width), never auto-corrected.
+  //  mode 0 'peaks' (default): level peaks, every valley its own depth, sometimes a deep or a wide one.
+  //  mode 1 'zigzag' (haqu original): each key point = previous +- (minDY..minDY+rangeDY), clamped.
   hills: {
     mode: 0, // 0 peaks, 1 zigzag
-    halfW: 380, // peak -> valley distance (a whole hill = 2 * halfW)
-    halfWJitter: 0.08, // +-8%
-    symmetric: 1, // 1: both slopes of a valley share one width (a symmetric bowl); 0: each slope rolls its own
+    width: 920, // peak -> peak
+    widthJitter: 0.06,
+    height: 205, // peak -> valley
+    heightJitter: 0.12,
     peakY: 200, // peak level (the nest is at 200)
-    peakJitter: 12, // +- px per peak
-    depth: 170, // peak -> valley drop
-    depthJitter: 0.15, // +-15%
-    deepChance: 0.2, // share of valleys that are deep
-    deepMul: 1.45, // depth multiplier of a deep valley
-    wideChance: 0.15, // share of valleys that are wide
-    wideMul: 1.35, // halfW multiplier of a wide valley
+    peakJitter: 8,
+    deepChance: 0.18, // share of valleys that are deeper (bigger pump)
+    deepMul: 1.35, // height multiplier of a deep valley (width unchanged)
+    wideChance: 0.15, // share of valleys that are wider (softer slopes, longer flights)
+    wideMul: 1.3, // width multiplier of a wide valley (height unchanged)
     noRepeat: 1, // 1: a deep/wide valley is never followed by another special one
-    growFrom: 0.85, // depth multiplier along the island: first valley -> last valley
-    growTo: 1.12,
-    maxSlope: 1.1, // max |h'| (a slope's width is widened to respect it)
+    growFrom: 0.85, // height multiplier along the island: first valley -> last valley
+    growTo: 1.1,
+    slopeLimit: 1.5, // safety only: a valley steeper than this gets a lower height (never a wider one)
     // zigzag mode (haqu: minDY 60, rangeDY 60 on a 320 px tall screen, clamp [20, 320]; x1.5 for our 720 px width)
     zzMinDY: 90,
     zzRangeDY: 90,
@@ -209,7 +241,7 @@ export const CONFIG = {
   },
 
   speed: {
-    tiers: [700, 1300, 1900, 2500], // CRUISE, FAST, BLAZING, SONIC (px/s)
+    tiers: [650, 1050, 1450, 1850], // CRUISE, FAST, BLAZING, SONIC (px/s) — SONIC sits just above tw's vSoft (1700)
     tierHysteresis: 60,
     kmhPerPx: 0.12,
     pxPerMeter: 30,

@@ -12,6 +12,8 @@ export interface TerrainGen {
 export class Terrain {
   kx = new Float64Array(1024);
   ky = new Float64Array(1024);
+  /** Shape of the segment that STARTS at key point i (1 = plain cosine; >1 = sharper peak, flatter valley). */
+  kq = new Float64Array(1024);
   n = 0;
   /** Global index of kx[0] (points dropped so far). */
   base = 0;
@@ -25,17 +27,22 @@ export class Terrain {
     this.gen = gen;
   }
 
-  push(x: number, y: number): void {
+  push(x: number, y: number, q = 1): void {
     if (this.n === this.kx.length) {
       const kx = new Float64Array(this.n * 2);
       const ky = new Float64Array(this.n * 2);
+      const kq = new Float64Array(this.n * 2);
       kx.set(this.kx);
       ky.set(this.ky);
+      kq.set(this.kq);
       this.kx = kx;
       this.ky = ky;
+      this.kq = kq;
     }
     this.kx[this.n] = x;
     this.ky[this.n] = y;
+    this.kq[this.n] = 1;
+    if (this.n > 0) this.kq[this.n - 1] = q; // the shape belongs to the segment that ends here
     this.n++;
   }
 
@@ -59,6 +66,7 @@ export class Terrain {
     if (k >= CONFIG.terrain.trimBatch) {
       this.kx.copyWithin(0, k, this.n);
       this.ky.copyWithin(0, k, this.n);
+      this.kq.copyWithin(0, k, this.n);
       this.n -= k;
       this.base += k;
     }
@@ -103,10 +111,7 @@ export class TerrainCursor {
     while (i > 0 && kx[i] > x) i--;
     while (i < T.n - 2 && kx[i + 1] <= x) i++;
     this.gi = i + T.base;
-    const x0 = kx[i], w = kx[i + 1] - x0, y0 = ky[i], A = (ky[i + 1] - y0) / 2, k = Math.PI / w, t = (x - x0) * k;
-    this.y = y0 + A * (1 - Math.cos(t));
-    this.d1 = A * k * Math.sin(t);
-    this.d2 = A * k * k * Math.cos(t);
+    segEval(kx[i], ky[i], kx[i + 1], ky[i + 1], T.kq[i], x, this);
   }
 
   height(x: number): number {
@@ -115,23 +120,73 @@ export class TerrainCursor {
   }
 }
 
-/** Height on one cosine segment (generators place things before the cursor sees them). */
-export function segY(x0: number, y0: number, x1: number, y1: number, x: number): number {
-  const A = (y1 - y0) / 2;
-  return y0 + A * (1 - Math.cos(((x - x0) * Math.PI) / (x1 - x0)));
+// Segment shape. Plain cosine: y = y0 + D (1 - cos(pi u)) / 2 with u = t (t = (x - x0) / w in [0, 1]).
+// Sharpness q >= 1 warps u so the PEAK end of the segment gets steeper and rounder->pointier while the
+// VALLEY end flattens: rising segment u = t^q, falling segment u = 1 - (1 - t)^q. Still C1 (slope 0
+// at every key point); peak curvature x q^2, max slope ~x(0.6 + 0.4 q). q = 1 is the classic hill.
+const segOut = { y: 0, d1: 0, d2: 0 };
+export function segEval(x0: number, y0: number, x1: number, y1: number, q: number, x: number, out: { y: number; d1: number; d2: number } = segOut): { y: number; d1: number; d2: number } {
+  const w = x1 - x0, D = y1 - y0;
+  let t = (x - x0) / w;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  let u = t, u1 = 1, u2 = 0;
+  if (q !== 1) {
+    if (D >= 0) {
+      // rising: peak at t = 1
+      u = Math.pow(t, q);
+      u1 = t > 0 ? q * Math.pow(t, q - 1) : 0;
+      u2 = t > 1e-6 ? q * (q - 1) * Math.pow(t, q - 2) : 0;
+    } else {
+      // falling: peak at t = 0
+      const s = 1 - t;
+      u = 1 - Math.pow(s, q);
+      u1 = s > 0 ? q * Math.pow(s, q - 1) : 0;
+      u2 = s > 1e-6 ? -q * (q - 1) * Math.pow(s, q - 2) : 0;
+    }
+  }
+  const pu = Math.PI * u, sn = Math.sin(pu), cs = Math.cos(pu);
+  out.y = y0 + (D * (1 - cs)) / 2;
+  out.d1 = ((D * Math.PI) / 2) * sn * (u1 / w);
+  out.d2 = (D / (w * w)) * (((Math.PI * Math.PI) / 2) * cs * u1 * u1 + (Math.PI / 2) * sn * u2);
+  return out;
 }
 
-export function segD1(x0: number, y0: number, x1: number, y1: number, x: number): number {
-  const A = (y1 - y0) / 2;
-  const k = Math.PI / (x1 - x0);
-  return A * k * Math.sin((x - x0) * k);
+/** Height on one segment (generators place things before the cursor sees them). */
+export function segY(x0: number, y0: number, x1: number, y1: number, x: number, q = 1): number {
+  return segEval(x0, y0, x1, y1, q, x).y;
 }
 
-/** x where a monotonic cosine segment crosses height ys. */
-export function segCross(x0: number, y0: number, x1: number, y1: number, ys: number): number {
-  const A = (y1 - y0) / 2;
-  const c = Math.min(1, Math.max(-1, 1 - (ys - y0) / A));
-  return x0 + (Math.acos(c) / Math.PI) * (x1 - x0);
+export function segD1(x0: number, y0: number, x1: number, y1: number, x: number, q = 1): number {
+  return segEval(x0, y0, x1, y1, q, x).d1;
+}
+
+/** x where a monotonic segment crosses height ys (bisection: works for any shape). */
+export function segCross(x0: number, y0: number, x1: number, y1: number, ys: number, q = 1): number {
+  let a = x0, b = x1;
+  const up = y1 > y0;
+  for (let i = 0; i < 40; i++) {
+    const m = (a + b) / 2, y = segEval(x0, y0, x1, y1, q, m).y;
+    if (y < ys === up) a = m;
+    else b = m;
+  }
+  return (a + b) / 2;
+}
+
+/** Max |slope| of a unit segment shape (|D| = 1, w = 1) for sharpness q, cached. */
+const slopeCache = new Map<number, number>();
+export function shapeSlope(q: number): number {
+  let m = slopeCache.get(q);
+  if (m === undefined) {
+    m = 0;
+    for (let i = 0; i <= 256; i++) m = Math.max(m, Math.abs(segEval(0, 0, 1, 1, q, i / 256).d1));
+    slopeCache.set(q, m);
+  }
+  return m;
+}
+
+/** Max |slope| of a segment. */
+export function segMaxSlope(dx: number, dy: number, q = 1): number {
+  return (shapeSlope(q) * Math.abs(dy)) / dx;
 }
 
 /** dx widened so that |h'| <= maxSlope on a segment from y0 to y1 (max slope of a cosine seg = A*pi/w). */

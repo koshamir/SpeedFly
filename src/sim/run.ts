@@ -46,6 +46,11 @@ export class Run {
   private readonly eSky: GameEvents['skyTouch'] = { x: 0, y: 0 };
   private readonly eCoin: GameEvents['coin'] = { type: 'gold', x: 0, y: 0, chain: 0 };
   private readonly eIsland: GameEvents['island'] = { index: 0 };
+  private readonly eLaunch: GameEvents['islandLaunch'] = { k: 0, x: 0, y: 0, targetX: 0, targetY: 0, apexX: 0, apexY: 0, duration: 0, speed: 0 };
+  private readonly eILand: GameEvents['islandLand'] = { k: 0, kind: 'ok', x: 0, y: 0, speed: 0 };
+  /** Island of the running scripted flight (0 = none). */
+  flightK = 0;
+  private launchIdx = 0;
   private readonly eTier: GameEvents['speedTier'] = { tier: 0, prev: 0 };
   private readonly eCaught: GameEvents['caught'] = { x: 0 };
   private readonly ePoints: GameEvents['points'] = { amount: 0, x: 0, y: 0 };
@@ -85,6 +90,7 @@ export class Run {
     this.t += P.dt;
     this.steps++;
     if (b.ev === EV_TAKEOFF) this.onTakeoff();
+    this.checkLaunch();
     this.updateCenter();
     if (b.ev === EV_LAND) this.onLand();
 
@@ -130,6 +136,47 @@ export class Run {
     this.bus.emit('takeoff', e);
   }
 
+  /** Arm the scripted island flight: a takeoff in [launchX0, wx0], or crossing the lip while airborne. */
+  private checkLaunch(): void {
+    const b = this.bird, L = this.world.islands;
+    while (this.launchIdx < L.length && L[this.launchIdx].wx0 < b.x) this.launchIdx++;
+    if (b.flyG > 0 || this.launchIdx >= L.length) return;
+    const isl = L[this.launchIdx];
+    if (b.x < isl.launchX0) return;
+    if (b.grounded) {
+      if (b.x < isl.lipX) return;
+      b.grounded = false; // too slow to fly off the ramp: the lip throws the bird anyway
+      b.airT = 0;
+      b.airAlt = 0;
+      b.fx = b.x;
+    } else if (b.ev !== EV_TAKEOFF && b.x < isl.lipX) return;
+    const I = CONFIG.islands;
+    this.cur.sample(b.u);
+    // never aim into the ramp: at least launchClear degrees above the local slope
+    const th = Math.max(I.launchAngle, (Math.atan(this.cur.d1) * 180) / Math.PI + I.launchClear) * (Math.PI / 180);
+    const sp = Math.min(I.vLaunchMax, Math.max(I.vLaunchMin, Math.hypot(b.vx, b.vy)));
+    const vx = sp * Math.cos(th), vy = sp * Math.sin(th);
+    const D = Math.max(300, isl.targetX - b.x), dy = isl.targetY + CONFIG.physics.birdRadius - b.y;
+    // y(x) = tan(th) x - g x^2 / (2 vx^2) passes (D, dy)  ->  g = 2 vx^2 (D tan(th) - dy) / D^2
+    const g = Math.max(150, (2 * vx * vx * (D * Math.tan(th) - dy)) / (D * D));
+    b.vx = vx;
+    b.vy = vy;
+    b.flyG = g;
+    this.flightK = isl.k;
+    this.launchIdx++;
+    const e = this.eLaunch, ta = vy / g;
+    e.k = isl.k;
+    e.x = b.x;
+    e.y = b.y;
+    e.targetX = isl.targetX;
+    e.targetY = isl.targetY;
+    e.apexX = b.x + vx * ta;
+    e.apexY = b.y + (vy * vy) / (2 * g);
+    e.duration = D / vx;
+    e.speed = sp;
+    this.bus.emit('islandLaunch', e);
+  }
+
   private onLand(): void {
     const b = this.bird, S = CONFIG.score, sc = this.score;
     const kind = b.evKind;
@@ -147,7 +194,7 @@ export class Run {
         this.eFeverStart.streak = b.streak;
         this.bus.emit('feverStart', this.eFeverStart);
       }
-    } else if (this.fever) this.endFever();
+    } else if (this.fever && (kind === 'bad' || kind === 'splash')) this.endFever(); // GOOD keeps Fever
 
     const e = this.eLand;
     e.kind = kind;
@@ -160,6 +207,16 @@ export class Run {
     e.gy = this.cur.height(b.u);
     e.speed = b.v;
     this.bus.emit('land', e);
+    if (this.flightK > 0) {
+      const f = this.eILand;
+      f.k = this.flightK;
+      f.kind = kind;
+      f.x = this.cx;
+      f.y = this.cy;
+      f.speed = b.v;
+      this.flightK = 0;
+      this.bus.emit('islandLand', f);
+    }
     this.points(Scoring.landing(kind === 'great', b.evAirTime, b.streak));
   }
 
