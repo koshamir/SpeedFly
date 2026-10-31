@@ -79,13 +79,15 @@ export class Sky {
   }
 }
 
-/** Dark gradient from the left edge where the night has caught up. */
+/** Screen overlay: night front (dark gradient where the night has caught up), vignette, tint. */
 export class NightFront {
   readonly mesh: THREE.Mesh;
+  /** Screen tint (rgb + amount), e.g. the Fever pulse; set by the renderer each frame. */
+  readonly tint = new THREE.Vector4();
   private readonly u: Record<string, THREE.IUniform>;
 
   constructor() {
-    const c: RGB = hexRgb(CONFIG.colors.night);
+    const c: RGB = hexRgb(CONFIG.colors.night), v: RGB = hexRgb(CONFIG.colors.outline);
     this.u = {
       uLeft: { value: 0 },
       uRight: { value: 1 },
@@ -93,18 +95,27 @@ export class NightFront {
       uWidth: { value: CONFIG.night.frontWidth },
       uAlpha: { value: CONFIG.night.frontAlpha },
       uColor: { value: new THREE.Color(c[0], c[1], c[2]) },
+      uAspect: { value: 9 / 16 },
+      uVignette: { value: CONFIG.fx.vignette },
+      uVigColor: { value: new THREE.Color(v[0], v[1], v[2]) },
+      uTint: { value: this.tint },
     };
     this.mesh = fullscreen(nightFrag, this.u, 8, true);
+    const m = this.mesh.material as THREE.ShaderMaterial;
+    m.blending = THREE.CustomBlending;
+    m.blendSrc = THREE.OneFactor;
+    m.blendDst = THREE.OneMinusSrcAlphaFactor;
   }
 
-  update(x0: number, x1: number, nightX: number): void {
+  update(x0: number, x1: number, nightX: number, aspect: number): void {
     const N = CONFIG.night;
-    this.mesh.visible = nightX + N.frontWidth > x0;
     this.u.uLeft.value = x0;
     this.u.uRight.value = x1;
     this.u.uNightX.value = nightX;
     this.u.uWidth.value = N.frontWidth;
     this.u.uAlpha.value = N.frontAlpha;
+    this.u.uAspect.value = aspect;
+    this.u.uVignette.value = CONFIG.fx.vignette;
   }
 }
 

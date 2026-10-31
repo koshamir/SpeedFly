@@ -411,6 +411,19 @@ export const CONFIG = {
     maxParticles: 300,
     stretchK: 0.0025, // stretched particles: length x (1 + speed * k)
     splashDrops: 18,
+    dust: 5, // landing dust puffs (x speed factor)
+    dustBad: 8,
+    greatSparks: 12,
+    badFeathers: 7,
+    skyPuffs: 10,
+    sonicCooldown: 3, // s
+    sonicRing: 560, // world px
+    lineRate: [10, 22, 40], // speed lines per second at FAST / BLAZING / SONIC
+    lineAlpha: 0.7,
+    trailStep: 14, // world px between trail points (x bird scale)
+    trailWidth: 22,
+    trailAlpha: 0.85,
+    vignette: 0.22,
   },
 
   debug: {

@@ -213,7 +213,7 @@ function frame(dt: number, alpha: number): void {
   if (bot && state === 'results' && stateT >= CONFIG.bot.autoRetry) retry();
 
   const asleep = state === 'title' || state === 'caught' || state === 'results';
-  renderer.frame(dt, alpha, asleep);
+  renderer.frame(dt, alpha, asleep, state === 'playing');
   hud.update(run, renderer.skyState);
   renderer.toScreen(renderer.bx, renderer.by, scr);
   const u = renderer.layout.gw / renderer.layout.logW;

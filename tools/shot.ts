@@ -27,12 +27,14 @@ const SESSIONS: Session[] = [
     shots: [
       { name: '01-title', when: "sd.state() === 'title'", delay: 400 },
       { name: '02-start', when: "sd.state() === 'playing' && sd.run().t > 2.5" },
+      { name: '09-great', when: "sd.lastLand().kind === 'great' && sd.run().t - sd.lastLand().t > 0.1 && sd.run().t > 3" },
       { name: '03-flight', when: "sd.run().t > 6 && !sd.run().bird.grounded && sd.run().bird.airT > 0.5" },
       { name: '04-speed', when: 'sd.run().speed > 1300 && !sd.run().bird.grounded' },
       { name: '05-water', when: 'sd.run().world.islands?.length > 0 && sd.overWater?.()', timeout: 90000 },
       { name: '06-island2', when: 'sd.run().island >= 2', delay: 350, timeout: 90000 },
       { name: '07-fever', when: 'sd.run().fever === true', delay: 300, timeout: 60000 },
       { name: '08-late', when: 'sd.run().t > 40', timeout: 120000 },
+      { name: '10-sky', when: 'sd.run().skyTouched && !sd.run().bird.grounded', delay: 120, timeout: 60000 },
     ],
   },
   {

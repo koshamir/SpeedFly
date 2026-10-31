@@ -52,6 +52,7 @@ export class Renderer {
     this.layout = computeLayout(innerWidth, innerHeight, false);
     this.bird = new BirdView(bus);
     this.fx = new Fx(bus);
+    this.fx.onSonic = () => this.rig.shake(CONFIG.camera.shakeSonic);
     this.scene.add(this.sky.mesh, this.clouds.mesh, this.terrain.group, this.water.mesh, this.coins.mesh, this.bird.mesh, this.fx.group, this.night.mesh);
     bus.on('land', (e) => {
       if (e.kind === 'bad') this.rig.shake(CONFIG.camera.shakeBad);
@@ -87,7 +88,8 @@ export class Renderer {
     out.y = (1 - (y - (r.cy - r.viewH / 2)) / r.viewH) * L.gh;
   }
 
-  frame(dt: number, alpha: number, asleep: boolean): void {
+  /** live = the run is being played (not title / paused / results): FX time runs only then. */
+  frame(dt: number, alpha: number, asleep: boolean, live: boolean): void {
     const run = this.run, b = run.bird, L = this.layout;
     this.time += dt;
     const cx = run.pcx + (run.cx - run.pcx) * alpha;
@@ -117,8 +119,8 @@ export class Renderer {
     this.water.update(run.world, x0, x1, this.time, pxPerWorld, s.grade, s.horizon);
     this.coins.update(run.world, x0 - margin, x1 + margin, this.time, s.grade);
     this.bird.update(dt, run, cx, cy, d1, r.birdScale, asleep, s.grade);
-    this.fx.update(dt, x0, r.cy - r.viewH / 2, r.z);
-    this.night.update(x0, x1, run.night.x);
+    this.fx.update(live || asleep ? dt : 0, cx, cy, r.birdScale, x0, r.cy - r.viewH / 2, r.z, L.logW, L.logH, s.grade, live);
+    this.night.update(x0, x1, run.night.x, L.gw / L.gh);
     this.lines?.update(run, x0 - margin, x1 + margin, cx, cy);
 
     // side bars (desktop) take the sky color
