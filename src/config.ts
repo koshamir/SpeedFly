@@ -227,18 +227,40 @@ export const CONFIG = {
   },
 
   night: {
-    startGap: 2500, // xNight(t) = -startGap + v0 t + accel t^2 / 2
-    v0: 300,
-    accel: 8,
-    daylightGap: 2500, // daylight = clamp(gap / this)
-    islandPushback: 1200,
+    // "Speed and skill buy daylight" (SPEC §5). Night front speed (islands terrain):
+    //   vNight(t) = v0 + grow (1 - e^(-t/tau)) + creep t   (t = night time; it waits during island sequences)
+    // reference terrain keeps the historical xNight = -startGap + v0 t + accel t^2 / 2 (npm run sim table).
+    startGap: 3000,
+    v0: 300, // px/s at the first touch: a new player outruns it at first
+    accel: 8, // reference terrain only (with refStartGap / refV0)
+    refStartGap: 2500,
+    refV0: 300,
+    refIslandPush: 1200,
+    grow: 650, // rises toward v0 + grow over ~tau s (difficulty)
+    tau: 150,
+    creep: 0.5, // px/s^2 forever: the night always wins in the end
+    daylightGap: 6000, // daylight = clamp(gap / this): the HUD dial and the sky
+    maxGap: 6000, // the gap never exceeds this: daylight can't be banked
+    // pushes (px of gap = daylight x daylightGap)
+    greatPush: 180, // GREAT, + greatStep per streak step, <= greatMax
+    greatStep: 60,
+    greatMax: 480,
+    feverPush: 160, // per s in Fever
+    skyPush: 600,
+    islandPushback: 2400, // reaching a new island
+    perfectPush: 900, // PERFECT island landing
+    popupMin: 0.02, // "+DAY" popup when a push gains at least this much daylight
+    rateSmooth: 2.5, // 1/s smoothing of the dial's trend arrow
+    dangerAt: 0.22, // daylight below this: warning pulse + sound
+    dangerOff: 0.3,
     frontWidth: 600,
     frontAlpha: 0.88,
-    caughtTime: 1.2,
+    caughtTime: 2.6, // sunset -> sleep moment before the results
   },
 
   score: {
     distPerPt: 10,
+    tierBonus: 0.25, // distance points x (1 + this x speed tier): speed pays
     flightMin: 1,
     flightPerSec: 50,
     greatBase: 100,
@@ -250,6 +272,7 @@ export const CONFIG = {
     islandPer: 500,
     islandLanding: 300, // x k: the scripted island landing ("PERFECT LANDING")
     feverMul: 2,
+    recordAt: 300, // m: "NEW RECORD!" only once the old best distance was at least this
     feverStreak: 3,
   },
 
@@ -288,6 +311,9 @@ export const CONFIG = {
     shakeBad: 10,
     shakeSonic: 14,
     shakeDecay: 0.25,
+    shakeGreat: 4, // GREAT x3+ landing (scaled up with the streak)
+    shakeIsland: 12, // island touchdown
+    shakeFever: 8, // Fever start
     // island-end sequence (render only, by the bird's position): zoom IN on the descent, follow the
     // bird during the ramp + flight, back to the normal framing after the landing
     descentZoom: 1.7, // normal zoom x this on the mountain descent (closer = more speed)
@@ -408,7 +434,129 @@ export const CONFIG = {
     autoRetry: 4.0, // s on results before the bot retries
   },
 
+  // ---------- Race mode (SPEC §14) ----------
+  // A track = islands; an island = sections of identical hills (w = width x hills.width, h = valley depth
+  // x hills.height, q = sharpness, peak = peak offset, rings = boost ring above each valley). Every island
+  // but the last ends with the mountain + scripted jump; the finish line stands on the peak after the last
+  // section of the last island (gentle run-out hills follow). No randomness anywhere: tracks can be learned.
+  race: {
+    lengthMul: 1, // x section hill counts (race length knob: ~2-3 min for a good player)
+    rivals: 4,
+    countdown: 3, // s
+    finishWait: 6, // s after the player finishes before the results (rivals keep racing)
+    ringLift: 430, // boost ring height above hills.peakY (only a real flight reaches it)
+    ringRadius: 70, // pickup radius of a ring for rival birds (the player uses the coin pickup)
+    // slipstream (Slipstream Ridge): behind another bird within draftDx and |dy| < draftDy -> less air drag
+    draftDx: 320,
+    draftDy: 160,
+    draftCut: 0.65, // drag x (1 - this) while drafting (no push: the bird just loses less speed)
+    draftSoft: 260, // + px/s on the soft speed limit (vSoft) while drafting
+    // sunset chase (Sunset Chase): the night front starts nightGap behind the start and moves at
+    // nightV0 + nightAccel t; any bird it reaches is out (the player too: race over, last place)
+    nightGap: 2200,
+    nightV0: 520,
+    nightAccel: 4.2,
+    // dynamic difficulty: a rival more than bandFar px behind (ahead of) the player gets up to bandDrag
+    // less (more) air drag and fewer (more) mistakes; eased over bandEase s. Small: never obvious.
+    bandFar: 2500,
+    bandDrag: 0.12,
+    bandSoft: 120, // px/s on vSoft at full band
+    bandMistake: 0.5,
+    bandEase: 3,
+    rivalScale: 0.92, // rival sprite scale (drawn under the player)
+    tracks: [
+      {
+        name: 'Ring Road',
+        feature: 'rings',
+        blurb: 'Boost rings hang in the sky: only a high flight grabs them.',
+        medals: [150, 170, 200], // gold / silver / bronze time (s)
+        islands: [
+          { jump: true, sections: [
+            { n: 4, w: 1, h: 0.7 },
+            { n: 10, w: 1, h: 1 }, // rhythm: a perfect pumping chain
+            { n: 3, w: 1, h: 1.45 }, // deep valleys: pay off only with good timing
+            { n: 8, w: 1, h: 1, rings: true },
+            { n: 2, w: 1.45, h: 1.1 }, // wide: long flights
+            { n: 8, w: 0.95, h: 1.05 },
+          ] },
+          { jump: true, sections: [
+            { n: 6, w: 0.9, h: 1.05 },
+            { n: 4, w: 1.3, h: 1.5, rings: true }, // big pumps launch you through the rings
+            { n: 10, w: 1, h: 1.1 },
+            { n: 4, w: 0.75, h: 1.2, q: 1.6 }, // kickers: a sharp lip throws a fast bird high
+            { n: 8, w: 1, h: 1.1, rings: true },
+          ] },
+          { jump: false, sections: [
+            { n: 10, w: 1, h: 1.15, rings: true },
+            { n: 3, w: 1, h: 1.55 },
+            { n: 8, w: 1.1, h: 1.2 }, // final sprint
+          ] },
+        ],
+      },
+      {
+        name: 'Slipstream Ridge',
+        feature: 'draft',
+        blurb: 'Tuck in right behind a rival: less drag, then fly past.',
+        medals: [155, 175, 205],
+        islands: [
+          { jump: true, sections: [
+            { n: 4, w: 1, h: 0.7 },
+            { n: 12, w: 1.15, h: 0.95 }, // long rollers: the pack bunches up
+            { n: 3, w: 0.8, h: 1.3, q: 1.7 }, // risk line: sharp lips, a late release is a BAD landing
+            { n: 10, w: 1.15, h: 1 },
+          ] },
+          { jump: true, sections: [
+            { n: 8, w: 1, h: 1.1 },
+            { n: 4, w: 1.5, h: 1.35 }, // wide valleys: the high flight skips a slow climb
+            { n: 4, w: 0.8, h: 1.35, q: 1.7 },
+            { n: 10, w: 1.15, h: 1.05 },
+          ] },
+          { jump: false, sections: [
+            { n: 12, w: 1.1, h: 1.1 },
+            { n: 3, w: 0.8, h: 1.4, q: 1.7 },
+            { n: 6, w: 1.2, h: 1.2 },
+          ] },
+        ],
+      },
+      {
+        name: 'Sunset Chase',
+        feature: 'night',
+        blurb: 'The night chases the pack. Whoever it catches is out.',
+        medals: [145, 165, 195],
+        islands: [
+          { jump: true, sections: [
+            { n: 4, w: 1, h: 0.75 },
+            { n: 8, w: 1, h: 1.1 },
+            { n: 4, w: 1.1, h: 1.55 }, // deep: a slow bird stalls here and the night is close
+            { n: 8, w: 1, h: 1.1 },
+          ] },
+          { jump: true, sections: [
+            { n: 6, w: 0.9, h: 1.15 },
+            { n: 4, w: 1.4, h: 1.5 },
+            { n: 10, w: 1, h: 1.15 },
+            { n: 3, w: 0.75, h: 1.3, q: 1.6 },
+          ] },
+          { jump: false, sections: [
+            { n: 10, w: 1, h: 1.2 },
+            { n: 4, w: 1.2, h: 1.6 },
+            { n: 6, w: 1, h: 1.2 },
+          ] },
+        ],
+      },
+    ] as TrackDef[],
+    runout: { n: 1e9, w: 1, h: 0.6 }, // after the finish
+    // AI rivals: same physics + planner bot. delay = reaction in decisions (1/60 s), mistake = chance per
+    // flight to pick a neighbouring release plan, speedWeight = how much the planner values speed (aggression)
+    birds: [
+      { name: 'Zippy', scarf: '#2EC4B6', delay: 1, mistake: 0.08, speedWeight: 0.35 },
+      { name: 'Mango', scarf: '#FF9F1C', delay: 2, mistake: 0.05, speedWeight: 0.2 },
+      { name: 'Pip', scarf: '#FF5D9E', delay: 1, mistake: 0.14, speedWeight: 0.45 },
+      { name: 'Boris', scarf: '#7C5CFF', delay: 3, mistake: 0.03, speedWeight: 0.12 },
+    ],
+  },
+
   ui: {
+    flagAhead: 3000, // px: the BEST flag is placed once it is this close (no terrain generated far ahead)
     retryLock: 0.6,
     popupMax: 4,
     popupLife: 0.7,
@@ -522,6 +670,8 @@ export const CONFIG = {
     hitStop: 0.04, // s, render-only freeze on GREAT x3+ (the sim never stops)
     hitStopStreak: 3,
     scoreRoll: 12, // 1/s: the score counter rolls up to the real score
+    dialEase: 4, // 1/s: the day dial (and the sky) ease toward the real daylight
+    trendSteps: [0.006, 0.03, 0.07], // |d daylight/dt| (1/s) for 1 / 2 / 3 trend chevrons
     scoreBump: 100, // a jump of at least this many points bumps the counter
     feverTint: 0.09, // screen tint amount in Fever (pulsing +-feverPulse)
     feverPulse: 0.05,
@@ -530,6 +680,9 @@ export const CONFIG = {
     slowMoTime: 0.6, // s of sim time at full slow-mo, centred on the apex
     slowMoEase: 0.25, // s eased in / out on each side
     islandHitStop: 0.07, // s, render-only freeze on the island touchdown
+    flashFever: 0.55, // white screen flash alpha on Fever start
+    flashTier: 0.25, // flash on a speed tier up
+    flashIsland: 0.4, // flash on the island touchdown
     tumbleSpeed: 0.9, // launch at >= vLaunchMax * this: a cosmetic back-flip
     tumbleTime: 0.75,
   },
@@ -553,6 +706,10 @@ export const CONFIG = {
     sting: 0.16, // soaring chord at the apex
     landChord: 0.2, // bright chord on the island touchdown
     bump: 0.35, // bump thump on the descent
+    bpm: 116, // procedural soundtrack tempo (used when src/audio/music.mp3 is absent)
+    swish: 0.22, // takeoff swish
+    tierUp: 0.16, // speed tier up riser + chime
+    nightWarn: 0.4, // night-near warning pulse
   },
 
   debug: {
@@ -563,6 +720,22 @@ export const CONFIG = {
 };
 
 export type Config = typeof CONFIG;
+
+export interface TrackSection {
+  n: number;
+  w: number;
+  h: number;
+  q?: number;
+  peak?: number;
+  rings?: boolean;
+}
+export interface TrackDef {
+  name: string;
+  feature: 'rings' | 'draft' | 'night';
+  blurb: string;
+  medals: [number, number, number];
+  islands: { jump: boolean; sections: TrackSection[] }[];
+}
 
 /** Copy a preset into CONFIG.physics (live: the next step uses it). */
 export function applyPreset(name: PresetName): void {

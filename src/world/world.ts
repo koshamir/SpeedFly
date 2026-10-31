@@ -1,4 +1,4 @@
-import { CONFIG } from '../config';
+import { CONFIG, type TrackDef } from '../config';
 import { Coins } from './collectibles';
 import { IslandGen, referenceIsland, type Island } from './islands';
 import { addPreroll, ReferenceGen, Terrain } from './terrain';
@@ -11,23 +11,33 @@ export class World {
   readonly coins = new Coins();
   readonly islands: Island[] = [];
   private islCursor = 0;
+  private gen: IslandGen | null = null;
 
   constructor(
     readonly seed: number,
     readonly mode: TerrainMode,
+    readonly track: TrackDef | null = null,
   ) {
     addPreroll(this.terrain);
     if (mode === 'reference') {
       this.islands.push(referenceIsland());
       this.terrain.setGen(new ReferenceGen(seed));
-    } else this.terrain.setGen(new IslandGen(seed, this.islands, this.coins));
+    } else this.terrain.setGen((this.gen = new IslandGen(seed, this.islands, this.coins, track)));
     this.update(0);
+    // a race track is generated up to its finish at once (and never trimmed: rivals ride behind the camera)
+    if (track) while (this.gen!.finishX === Infinity) this.terrain.ensure(this.terrain.lastX + 1);
+  }
+
+  /** Finish line x (race track), Infinity otherwise. */
+  get finishX(): number {
+    return this.gen ? this.gen.finishX : Infinity;
   }
 
   /** Streaming: keep key points ahead, drop them (and coins) far behind. */
   update(x: number): void {
     const C = CONFIG.terrain;
     this.terrain.ensure(x + C.aheadScreens * C.screenWorld);
+    if (this.track) return;
     const behind = x - C.behindScreens * C.screenWorld;
     this.terrain.trim(behind);
     this.coins.trim(behind);

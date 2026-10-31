@@ -8,11 +8,13 @@ import { CONFIG } from './config';
 import { EventBus, type GameEvents } from './core/events';
 import { Input } from './core/input';
 import { Loop } from './core/loop';
-import { load, save } from './core/storage';
+import { loadRecords, submitRecords } from './core/records';
 import { Quality } from './render/quality';
 import { Renderer } from './render/renderer';
 import { Bot, type BotPolicy } from './sim/bot';
+import { Race } from './sim/race';
 import { Run } from './sim/run';
+import { RaceUi, submitTime } from './ui/race';
 import { el, Hud } from './ui/hud';
 import { Popups, type PopupKind } from './ui/popups';
 import { applyTuning, parseTuning, worldKey } from './tuning';
@@ -26,7 +28,7 @@ import type { TerrainMode } from './world/world';
 applyTuning(parseTuning(tuningFile));
 
 // Bootstrap, resize and the state machine: Title -> Playing <-> Paused -> Caught -> Results -> Playing.
-type State = 'title' | 'playing' | 'paused' | 'caught' | 'results';
+type State = 'title' | 'playing' | 'paused' | 'caught' | 'results' | 'raceMenu' | 'raceResults';
 
 const params = new URLSearchParams(location.search);
 const debugOn = params.get('debug') === '1';
@@ -71,6 +73,7 @@ syncSound();
 soundBtn.addEventListener('click', () => {
   audio.unlock();
   audio.setMuted(!audio.muted);
+  audio.click();
   syncSound();
 });
 // WebAudio needs a user gesture (iOS: inside touchend/pointerdown): unlock on every gesture
@@ -81,8 +84,20 @@ let bot = botPolicy ? new Bot(run.world.terrain, botPolicy, botDelay) : null;
 renderer.setRun(run);
 let teachCur = run.world.terrain.cursor();
 
-let best = Number(load('best')) || 0;
-screens.setBest(best);
+const records = loadRecords();
+screens.setBest(records.score);
+// best-distance flag in the world + the "NEW RECORD!" moment when the bird passes it
+const flagEl = el('div', 'best-flag', uiRoot);
+el('span', 'best-flag-label', flagEl, 'BEST');
+let flagCur = run.world.terrain.cursor();
+let recordPassed = false;
+const flagPt = { x: 0, y: 0 };
+// ---------- race mode (SPEC §14) ----------
+let race: Race | null = null;
+const raceUi = new RaceUi(uiRoot);
+const raceBtn = el('button', 'btn btn-race', screens.title, 'RACE');
+raceBtn.setAttribute('data-ui', '');
+let raceCount = '';
 let state: State = 'title';
 let stateT = 0;
 let stepsThisFrame = 0;
@@ -92,18 +107,39 @@ function setState(s: State): void {
   state = s;
   stateT = 0;
   audio.setRunning(s !== 'paused' && !document.hidden);
+  if (s === 'title') audio.setMood('title');
+  else if (s === 'playing') audio.setMood('play');
+  else if (s === 'results' || s === 'raceResults') audio.setMood('results');
+  else if (s === 'raceMenu') audio.setMood('title');
+  raceUi.menu.classList.toggle('visible', s === 'raceMenu');
+  raceUi.results.classList.toggle('visible', s === 'raceResults');
+  raceUi.show(race !== null && (s === 'playing' || s === 'paused'));
+  if (s === 'raceResults' && race) {
+    const me = race.player, ok = me.finishT !== null && !me.out;
+    const newBest = ok && submitTime(race.trackIndex, me.finishT!);
+    const medal = raceUi.fillResults(race, newBest);
+    raceUi.fillCard(race.trackIndex);
+    audio.results(newBest || medal === 'gold');
+  }
   loop.simulate = s === 'playing';
   hud.show(s === 'playing' || s === 'paused' || s === 'caught');
+  hud.root.classList.toggle('race', race !== null);
+  if (s === 'caught') screens.zzz.classList.add('visible');
+  if (s === 'caught') popups.showBanner('GOOD NIGHT', `${Math.floor(run.score.meters)} m · island ${run.island}`);
   screens.showOnly(s === 'title' ? screens.title : s === 'paused' ? screens.pause : s === 'results' ? screens.results : null);
   if (s === 'results') {
-    const total = Math.floor(run.score.total);
-    const isNew = total > best;
-    if (isNew) {
-      best = total;
-      save('best', String(best));
-      screens.setBest(best);
-    }
-    screens.fillResults(run, best, isNew);
+    const sc = run.score, prevBest = records.score;
+    const broken = submitRecords(records, {
+      score: Math.floor(sc.total),
+      distM: Math.floor(sc.meters),
+      island: run.island,
+      streak: sc.bestStreak,
+      kmh: Math.round(sc.maxSpeed * CONFIG.speed.kmhPerPx),
+    });
+    const isNew = Math.floor(sc.total) > prevBest && prevBest > 0;
+    screens.setBest(records.score);
+    screens.fillResults(run, records, broken, isNew);
+    audio.results(isNew || broken.length > 0);
     screens.setRetryLocked(true);
   }
 }
@@ -112,16 +148,54 @@ function newRun(seed = newSeed()): void {
   jump.on = false;
   jump.banner = 0;
   jump.t0 = jump.tLand = -1;
+  race = null;
+  renderer.setRivals([]);
+  renderer.nightX = renderer.dayOverride = null;
+  raceUi.show(false);
   run = new Run(seed, mode, bus);
   bot = botPolicy ? new Bot(run.world.terrain, botPolicy, botDelay) : null;
   renderer.setRun(run);
   teachCur = run.world.terrain.cursor();
+  flagCur = run.world.terrain.cursor();
+  recordPassed = false;
   popups.clear();
+}
+
+/** Race on track i: countdown -> race -> results. The player's Run is race.player.run. */
+function startRace(i: number): void {
+  newRun();
+  jump.banner = 1; // no ISLAND 1 banner over the countdown
+  race = new Race(i, bus, botPolicy ? { policy: botPolicy, delay: botDelay } : null);
+  run = race.player.run;
+  bot = null; // the race steps the player's autopilot itself
+  renderer.setRun(run);
+  renderer.setRivals(race.racers.filter((r) => !r.isPlayer).map((r) => ({ run: r.run, bus: r.bus, scarf: r.scarf })));
+  teachCur = run.world.terrain.cursor();
+  flagCur = run.world.terrain.cursor();
+  raceUi.setup(race);
+  raceCount = '';
+  race.onFinish = (r, place) => {
+    if (!r.isPlayer) return;
+    raceUi.bigText(place === 1 ? 'WINNER!' : `${['1st', '2nd', '3rd', '4th', '5th'][place - 1]}!`, 'win');
+    flash(place === 1 ? 0.6 : 0.35, '#FFE14D');
+    renderer.rig.shake(CONFIG.camera.shakeIsland);
+    if (place === 1) audio.record();
+    else audio.results(false);
+  };
+  race.onOut = (r) => {
+    if (r.isPlayer) {
+      popups.showBanner('CAUGHT!', 'the night got you');
+      audio.nightWarn();
+    } else popups.showBanner(`${r.name} is out!`, 'the night caught them');
+  };
+  popups.showBanner(race.track.name, race.track.blurb);
+  setState('playing');
 }
 
 function startPlaying(): void {
   run.start();
   setState('playing');
+  audio.go();
 }
 
 function retry(): void {
@@ -147,6 +221,7 @@ function togglePause(): void {
 input.onPress = (kind) => {
   if (state === 'title' && !rotated) startPlaying();
   else if (state === 'results' && kind === 'key') retry();
+  else if (state === 'raceResults' && kind === 'key' && race && stateT >= CONFIG.ui.retryLock) startRace(race.trackIndex);
 };
 input.onKey = (code) => {
   if (tune?.key(code)) return;
@@ -160,8 +235,29 @@ input.onKey = (code) => {
 hud.pause.addEventListener('click', () => state === 'playing' && setState('paused'));
 screens.resume.addEventListener('click', togglePause);
 screens.restart.addEventListener('click', () => {
+  if (race) return startRace(race.trackIndex);
   newRun();
   startPlaying();
+});
+raceBtn.addEventListener('click', () => {
+  audio.click();
+  setState('raceMenu');
+});
+raceUi.back.addEventListener('click', () => {
+  audio.click();
+  setState('title');
+});
+raceUi.cards.forEach((c, i) =>
+  c.addEventListener('click', () => {
+    audio.click();
+    startRace(i);
+  }),
+);
+raceUi.again.addEventListener('click', () => race && stateT >= CONFIG.ui.retryLock && startRace(race.trackIndex));
+raceUi.toMenu.addEventListener('click', () => {
+  audio.click();
+  newRun();
+  setState('raceMenu');
 });
 screens.retry.addEventListener('click', retry);
 screens.fullscreen.addEventListener('click', () => {
@@ -194,12 +290,42 @@ bus.on('land', (e) => {
   // BAD: no text — the thud and the streak dots resetting say it
 });
 bus.on('points', (e) => popup('points', `+${e.amount}`, 50));
+bus.on('dayGain', (e) => popup('day', e.reason === 'island' ? '+DAY ☀' : '+DAY', e.reason === 'great' ? 140 : 190));
+bus.on('nightNear', (e) => {
+  if (!e.near || state !== 'playing') return;
+  audio.nightWarn();
+  flash(0.25, '#2B2C66');
+});
 // hit-stop: a short render-only freeze on big GREAT streaks
 let hitStop = 0;
 bus.on('land', (e) => {
   if (e.kind === 'great' && e.streak >= CONFIG.juice.hitStopStreak && botPolicy === null) hitStop = CONFIG.juice.hitStop;
 });
 bus.on('feverStart', () => popup('fever', 'FEVER!', 170));
+
+// ---------- extra juice: screen flash + camera shake on the big moments ----------
+const flashEl = el('div', 'flash', uiRoot);
+function flash(alpha: number, color = '#fff'): void {
+  if (botPolicy !== null) return;
+  flashEl.style.transition = 'none';
+  flashEl.style.background = color;
+  flashEl.style.opacity = String(alpha);
+  void flashEl.offsetWidth; // restart the fade
+  flashEl.style.transition = 'opacity 0.35s ease-out';
+  flashEl.style.opacity = '0';
+}
+bus.on('feverStart', () => {
+  flash(CONFIG.juice.flashFever, '#FFF3B0');
+  renderer.rig.shake(CONFIG.camera.shakeFever);
+});
+bus.on('speedTier', (e) => e.tier > e.prev && e.tier >= 2 && flash(CONFIG.juice.flashTier));
+bus.on('land', (e) => {
+  if (e.kind === 'great' && e.streak >= 3) renderer.rig.shake(CONFIG.camera.shakeGreat * Math.min(3, e.streak / 3));
+});
+bus.on('islandLand', (e) => {
+  renderer.rig.shake(CONFIG.camera.shakeIsland);
+  if (e.kind === 'great') flash(CONFIG.juice.flashIsland, '#FFE14D');
+});
 bus.on('skyTouch', () => popup('sky', 'SKY TOUCH!', 120));
 bus.on('coin', (e) => e.type === 'blue' && popup('boost', 'BOOST!', 85));
 /** Banner of island k: number, style and palette names. */
@@ -244,8 +370,8 @@ bus.on('land', (e) => {
 
 // ---------- loop ----------
 function step(): void {
-  const held = bot ? bot.tick(run.bird) : input.held;
-  run.step(held);
+  if (race) race.step(input.held);
+  else run.step(bot ? bot.tick(run.bird) : input.held);
   stepsThisFrame++;
 }
 
@@ -306,7 +432,8 @@ function frame(dt: number, alpha: number): void {
   if (bot && state === 'title' && stateT >= CONFIG.bot.autoStart) startPlaying();
   if (bot && state === 'results' && stateT >= CONFIG.bot.autoRetry) retry();
 
-  const asleep = state === 'title' || state === 'caught' || state === 'results';
+  const asleep = state === 'title' || state === 'caught' || state === 'results' || state === 'raceMenu';
+  if (race) raceFrame(race);
   if (state === 'playing' && stateT > 1 && quality.update(dt)) {
     renderer.setQuality(quality.dpr, quality.particles, quality.grain);
     resize();
@@ -318,16 +445,58 @@ function frame(dt: number, alpha: number): void {
   else renderer.frame(dt, alpha, asleep, state === 'playing');
   audio.frame(run.speed, !run.bird.grounded && run.held && run.flightK === 0, state === 'playing', renderer.rig.cine);
   hud.update(dt, run, renderer.skyState);
+  updateFlag();
   renderer.toScreen(renderer.bx, renderer.by, scr);
   const u = renderer.layout.gw / renderer.layout.logW;
   popups.update(dt, scr.x, scr.y, u, renderer.layout.gw);
-  if (state === 'title' || state === 'results') {
+  if (state === 'title' || state === 'results' || state === 'caught') {
     screens.zzz.style.left = `${scr.x + 26 * u}px`;
     screens.zzz.style.top = `${scr.y - 90 * u}px`;
   }
   debug?.frame(dt, stepsThisFrame, renderer.rig.z, run.held);
   tune?.frame(dt);
   stepsThisFrame = 0;
+}
+
+/** Race per frame: countdown sounds, Sunset Chase sky + front, HUD, end of the race. */
+function raceFrame(r: Race): void {
+  const c = r.phase === 'countdown' ? String(Math.ceil(r.countdown)) : 'GO';
+  if (c !== raceCount && state === 'playing') {
+    raceCount = c;
+    if (c === 'GO') audio.go();
+    else audio.click();
+  }
+  const night = r.track.feature === 'night';
+  renderer.nightX = night ? r.nightX : -Infinity;
+  renderer.dayOverride = night ? Math.max(0, Math.min(1, (r.player.run.bird.x - r.nightX) / CONFIG.race.nightGap / 2)) : 1;
+  const L = renderer.layout;
+  raceUi.update(r, (x, y, o) => renderer.toScreen(x, y, o), L.gw, L.gh, flagCur.height(r.finishX));
+  if (r.phase === 'done' && state === 'playing') setState('raceResults');
+}
+
+/** BEST flag on the terrain at the record distance; passing it = NEW RECORD! */
+function updateFlag(): void {
+  const bestPx = records.distM * CONFIG.speed.pxPerMeter;
+  const on = state === 'playing' && !race && records.distM >= CONFIG.score.recordAt && !recordPassed;
+  if (on && run.score.distPx >= bestPx) {
+    recordPassed = true;
+    popups.showBanner('NEW RECORD!', `past ${Math.floor(records.distM)} m — keep going!`);
+    flash(0.5, '#FFE14D');
+    renderer.rig.shake(CONFIG.camera.shakeFever);
+    audio.record();
+  }
+  if (!on || recordPassed || bestPx - run.score.distPx > CONFIG.ui.flagAhead) {
+    flagEl.style.display = 'none';
+    return;
+  }
+  renderer.toScreen(bestPx, flagCur.height(bestPx), flagPt);
+  const L = renderer.layout;
+  if (flagPt.x < -40 || flagPt.x > L.gw + 40) {
+    flagEl.style.display = 'none';
+    return;
+  }
+  flagEl.style.display = '';
+  flagEl.style.transform = `translate(${flagPt.x}px, ${flagPt.y}px)`;
 }
 
 const loop = new Loop(step, frame);

@@ -178,11 +178,36 @@ at that height in the world — the player sees the target when the camera zooms
   v3 judged 12.5° hard and broke the combo on every "almost" landing and on skims ("random" feeling).
 - **Streak/Fever**: streak ≥ 3 → Fever (×2 to all points, fire-rainbow trail, separate audio layer; does not
   change physics). 3 HUD dots show the progress toward Fever.
-- **Night**: `xNight(t) = −2500 + 300t + 4t²` (t from the first touch). `gap = bird.x − xNight`,
-  `daylight = clamp(gap/2500, 0, 1)` → time of day (§7.1). gap ≤ 0 → `caught` → bird falls asleep → Results.
-  New island: xNight −= 1200 (pushes night back; our design choice, not a confirmed Tiny Wings rule).
-- **Score** (×2 in Fever): distance 1 pt/10 px · flight ≥ 1 s: 50·airTime · GREAT 100+20·(streak−1) (≤200) ·
-  skyTouch 300 · coin 20 · blue coin 50 · island 500·k · island landing 300·k. Best score in localStorage (try/catch).
+- **Night** — one-sentence rule (title screen): *"Fly fast & land GREAT to push the night back!"*
+  The night is a front chasing the bird along x. `gap = bird.x − xNight`, `daylight = clamp(gap / 6000)`
+  drives the sky (§7.1, eased ~0.25 s) and the HUD day dial.
+  - Night speed `vNight(t) = 300 + 650·(1 − e^(−t/150)) + 0.5·t` px/s (t = night time from the first touch;
+    it stands still from the mountain summit to the island landing). Slower than the night → daylight drains;
+    faster → it grows. vNight keeps creeping up, so even a perfect player is caught eventually.
+  - Skill pushes the front back (gap +px): GREAT 180 + 60·(streak−1) (≤ 480) · Fever 160/s · sky touch 600 ·
+    new island 2400 · PERFECT island landing 900. Pushes ≥ 2% daylight show a "+DAY" popup.
+  - `gap ≤ 6000` (maxGap): a full dial can't be banked; the night follows at that distance.
+  - daylight < 0.22 → `nightNear`: dial pulses violet, red chevrons, low warning tones + dark flash
+    (off again above 0.30).
+  - gap ≤ 0 → `caught`: "GOOD NIGHT" banner, sunset → the bird falls asleep (zzz), Results after 2.6 s.
+  - Reference terrain (`npm run sim`) keeps the historical `xNight = −2500 + 300t + 4t²`, island −1200.
+  - Target run lengths: new player 1.5–3 min, good 5–10 min, perfect longer but finite
+    (`GP_T=1200 npm run gameplay`, column "alive s").
+  - HUD dial: gold ring = daylight left; under it ▲ (gold, day growing) / ▼ (violet, night coming),
+    1–3 chevrons by |d daylight/dt| (0.006 / 0.03 / 0.07 per s).
+- **Score** — rewards exactly the core skills; everything ×2 in Fever (booked as its own "Fever" line):
+  | skill | points | category |
+  |---|---|---|
+  | distance + speed | 1 pt / 10 px × (1 + 0.25·speed tier) (CRUISE ×1.25 … SONIC ×2) | Distance |
+  | height / air time | flight ≥ 1 s: 50·airTime | Flights |
+  | timing | GREAT 100 + 20·(streak−1) (≤ 200) | GREAT |
+  | height | sky touch 300 | Sky touches |
+  | line choice | coin 20 · blue coin 50 | Coins |
+  | progress | new island 500·k · island landing 300·k | Islands |
+  Results show this breakdown (it sums to the total).
+- **Records** (localStorage, try/catch, `core/records.ts`): best score (title screen), best distance, best
+  island, longest GREAT chain, top speed. A "BEST" flag stands on the terrain at the best distance (once
+  it is ≥ 300 m); passing it → "NEW RECORD!" banner + flash + shake + arpeggio.
 - **Speed tiers** (px/s → label): <700 —, ≥700 CRUISE, ≥1300 FAST, ≥1900 BLAZING, ≥2500 SONIC.
   The tier drives speed lines, trail, wind volume, speedometer color. First entry into SONIC per flight →
   "sonic boom": shockwave ring + 14 px shake + sound (3 s cooldown).
@@ -276,8 +301,9 @@ BLAZING+ white, Fever fire-rainbow), sonic boom ring, light vignette.
   fade 0.7 s, max 4 at once. Banner "ISLAND k".
 - Title: game name, sleeping bird in its nest over the live world, 2-panel hint "Downhill: HOLD /
   Uphill: LET GO", "Tap to start", best score.
-- Results: "Night fell" — breakdown (distance, GREATs, Fever time, sky touches, coins, islands, max km/h),
-  NEW BEST, Retry button (0.6 s input lock against accidental taps).
+- Results: "Night fell" — score breakdown by category (+ Fever extra), NEW BEST, a 2×2 records grid
+  (distance / island / GREAT chain / top speed: this run, best, gold "RECORD!" when broken),
+  pulsing "One more run!" button (0.6 s input lock against accidental taps).
 - Bottom 25% of the screen: no UI.
 
 ## 8. Audio (WebAudio, unlocked on first pointerdown)
@@ -338,3 +364,33 @@ jitter or micro-hops; 3 GREATs in a row achievable on island 1 within the first 
 ## 13. Do not
 Meta-progression (TW nests/objectives), shops, ad placeholders, physics engines, external CDNs,
 React, EffectComposer, physics changes outside config, any Tiny Wings assets/names.
+
+## 14. Race mode
+Title → RACE → pick 1 of 3 tracks. The player races 4 AI birds to a finish line; the endless run stays the
+main mode. The day/night rules (§5) are off in races, except where a track feature uses the night.
+- **Tracks** (`CONFIG.race.tracks`, generator `IslandGen` with a script): fixed layouts, no randomness. A
+  track is a list of islands, and each island is a list of sections of identical hills (`w` width,
+  `h` valley depth, `q` sharpness, `rings`). Every island except the last ends with the mountain and the
+  scripted jump; the finish stands on the peak after the last section, and gentle run-out hills follow.
+  Section types: rhythm (perfect pumping chain), deep valleys (pay off only with timing), wide valleys
+  (a high flight skips the slow climb), kickers (sharp lips: fast and high, or a BAD landing). Length knob:
+  `race.lengthMul`; target 2–3 min for a good player.
+- **Features** (each one reinforces flying fast and high, never replaces it):
+  1. *Ring Road*: boost rings (blue boost coins) hang `ringLift` above the peaks over chosen valleys. Only
+     a real flight reaches them.
+  2. *Slipstream Ridge*: a bird within 320 px behind another (|dy| < 160) has 65% less air drag and
+     +260 px/s on its soft speed limit. No push: it just loses less speed. "SLIPSTREAM!" shows in the HUD.
+  3. *Sunset Chase*: a night front starts 2200 px behind and moves at 520 + 4.2·t px/s. Any bird it reaches
+     is out (the player too: race lost). The sky darkens as it closes in.
+- **AI birds**: same physics and the same planner bot. Personality: `delay` (reaction), `mistake` (chance
+  per flight to pick a neighbouring release plan; seeded, so deterministic) and `speedWeight` (aggression).
+  Rivals are Zippy (teal), Mango (orange), Pip (pink) and Boris (violet). They are drawn smaller and under
+  the player, and birds never collide.
+- **Dynamic difficulty**: a rival more than 2500 px behind (ahead of) the player gets up to 12% less (more)
+  drag, ±120 px/s on vSoft, and fewer (more) mistakes, eased over 3 s. Small, never a teleport.
+- **UX**: 3-2-1-GO countdown (the sim waits) · place "2nd / 5" · race timer · progress bar with every bird ·
+  off-screen name tags with the gap in m · checkered FINISH pole in the world · a big "WINNER!" moment ·
+  results: standings with times (* = estimated: not finished `finishWait` s after the player), medal
+  (gold/silver/bronze times per track), best time per track (localStorage), "Race again!" and "Tracks".
+- **Verification**: `npm run race` races naive / p100 / p50 / pro bots on every track. Pro must win
+  every track and naive must lose. Medal times and `lengthMul` are tuned from this table.
