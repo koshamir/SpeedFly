@@ -292,6 +292,10 @@ export const CONFIG = {
     wetTint: 0.55,
     wetTintDepth: 260,
     foam: 3,
+    waveA: 3.5, // visual water surface waves (the physical surface stays flat)
+    waveB: 2,
+    waveFreqA: 0.021,
+    waveFreqB: 0.053,
   },
 
   // sky keyframes, top -> horizon (daylight 1 -> 0). grade = multiply for hills.
@@ -348,6 +352,12 @@ export const CONFIG = {
     popupEdge: 150, // and stay this far from the screen edges
     bannerTime: 1.6,
     dial: 88,
+  },
+
+  fx: {
+    maxParticles: 300,
+    stretchK: 0.0025, // stretched particles: length x (1 + speed * k)
+    splashDrops: 18,
   },
 
   debug: {

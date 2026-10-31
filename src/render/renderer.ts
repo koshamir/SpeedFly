@@ -7,6 +7,7 @@ import { BirdView } from './birdView';
 import { CameraRig } from './camera';
 import { CoinsView } from './coinsView';
 import { DebugLines } from './debugLines';
+import { Fx } from './fx/fx';
 import { computeLayout, type Layout } from './layout';
 import { newSky, skyAt } from './palette';
 import { Clouds, NightFront, Sky } from './sky';
@@ -36,6 +37,7 @@ export class Renderer {
   private readonly coins = new CoinsView();
   private readonly bird: BirdView;
   private readonly night = new NightFront();
+  readonly fx: Fx;
   private lines: DebugLines | null = null;
   private readonly clear = new THREE.Color();
 
@@ -49,7 +51,8 @@ export class Renderer {
     this.gl.autoClear = false;
     this.layout = computeLayout(innerWidth, innerHeight, false);
     this.bird = new BirdView(bus);
-    this.scene.add(this.sky.mesh, this.clouds.mesh, this.terrain.group, this.water.mesh, this.coins.mesh, this.bird.mesh, this.night.mesh);
+    this.fx = new Fx(bus);
+    this.scene.add(this.sky.mesh, this.clouds.mesh, this.terrain.group, this.water.mesh, this.coins.mesh, this.bird.mesh, this.fx.group, this.night.mesh);
     bus.on('land', (e) => {
       if (e.kind === 'bad') this.rig.shake(CONFIG.camera.shakeBad);
     });
@@ -60,6 +63,7 @@ export class Renderer {
     this.cur = run.world.terrain.cursor();
     this.terrain.reset(run.world);
     this.bird.reset();
+    this.fx.reset(run);
     if (this.debug) {
       if (this.lines) this.scene.remove(this.lines.group);
       this.lines = new DebugLines(run.world.terrain.cursor());
@@ -110,9 +114,10 @@ export class Renderer {
     this.sky.update(s, L.gw / L.gh, this.time, r.cx, r.cy, r.z, L.logW, L.logH);
     this.clouds.update(r.cx, r.cy, r.z, r.viewW, r.viewH, L.logW, this.time, s);
     this.terrain.update(x0 - margin, x1 + margin, pxPerWorld, s.grade);
-    this.water.update(run.world, x0, x1, this.time, pxPerWorld, s.grade);
+    this.water.update(run.world, x0, x1, this.time, pxPerWorld, s.grade, s.horizon);
     this.coins.update(run.world, x0 - margin, x1 + margin, this.time, s.grade);
     this.bird.update(dt, run, cx, cy, d1, r.birdScale, asleep);
+    this.fx.update(dt, x0, r.cy - r.viewH / 2, r.z);
     this.night.update(x0, x1, run.night.x);
     this.lines?.update(run, x0 - margin, x1 + margin, cx, cy);
 

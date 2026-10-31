@@ -45,6 +45,16 @@ const SESSIONS: Session[] = [
     ],
   },
   {
+    // a late bot falls short of an island gap at ~21.6 s: splash FX
+    query: '?bot=1&botDelay=12&seed=5',
+    shots: [{ name: '15-splash', when: "sd.lastLand().kind === 'splash' && sd.run().t - sd.lastLand().t > 0.15", timeout: 120000 }],
+  },
+  {
+    // the naive bot lands badly every few seconds
+    query: '?bot=naive&seed=3',
+    shots: [{ name: '16-bad', when: "sd.lastLand().kind === 'bad' && sd.run().t - sd.lastLand().t > 0.1", timeout: 60000 }],
+  },
+  {
     query: '?bot=1&seed=5',
     desktop: true,
     shots: [

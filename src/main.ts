@@ -150,6 +150,11 @@ bus.on('skyTouch', () => popup('sky', 'SKY TOUCH!', 120));
 bus.on('coin', (e) => e.type === 'blue' && popup('boost', 'BOOST!', 85));
 bus.on('island', (e) => popups.showBanner(`ISLAND ${e.index}`));
 bus.on('caught', () => setState('caught'));
+const lastLand = { kind: '', t: -1 };
+bus.on('land', (e) => {
+  lastLand.kind = e.kind;
+  lastLand.t = run.t;
+});
 
 // ---------- loop ----------
 function step(): void {
@@ -246,5 +251,6 @@ loop.start();
   run: () => run,
   renderer,
   fps: () => (elapsed > 0 ? frames / elapsed : 0),
+  lastLand: () => lastLand,
   overWater: () => run.world.islands.some((i) => run.bird.x > i.lipX && run.bird.x < i.landingX && !run.bird.grounded),
 };
