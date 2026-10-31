@@ -100,6 +100,12 @@ const settings = new Settings(uiRoot, tilt, {
 });
 screens.gear.addEventListener('click', () => settings.show(true));
 screens.pauseSettings.addEventListener('click', () => settings.show(true));
+screens.toMenu.addEventListener('click', () => {
+  // leave the run / race: a fresh endless world behind the title
+  if (race) endRaceMode();
+  else newRun();
+  setState('title');
+});
 const tiltInd = el('div', 'tilt-ind', uiRoot, 'TILT');
 // tilt chosen last time: re-enable on the first tap (iOS asks for permission inside a gesture)
 if (load('control') === 'tilt' && Tilt.available())

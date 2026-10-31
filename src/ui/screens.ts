@@ -23,6 +23,7 @@ export class Screens {
   readonly gear: HTMLButtonElement;
   readonly raceBtn: HTMLButtonElement;
   readonly pauseSettings: HTMLButtonElement;
+  readonly toMenu: HTMLButtonElement;
   private readonly best: HTMLDivElement;
   private readonly rTitle: HTMLDivElement;
   private readonly rScore: HTMLDivElement;
@@ -55,6 +56,8 @@ export class Screens {
     this.restart = el('button', 'btn btn-alt', this.pause, 'Restart');
     this.fullscreen = el('button', 'btn btn-alt btn-fs', this.pause, 'Fullscreen');
     this.pauseSettings = el('button', 'btn btn-alt', this.pause, 'Settings');
+    this.toMenu = el('button', 'btn btn-menu', this.pause);
+    this.toMenu.innerHTML = '<svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z" fill="currentColor" stroke="#241B3A" stroke-width="2" stroke-linejoin="round"/></svg><span>Main menu</span>';
     const fsDoc = document as Document & { webkitFullscreenEnabled?: boolean };
     if (!(document.fullscreenEnabled || fsDoc.webkitFullscreenEnabled)) this.fullscreen.style.display = 'none';
 
@@ -71,7 +74,7 @@ export class Screens {
     el('div', 'rotate-icon', this.rotate);
     el('div', 'big-label', this.rotate, 'Rotate your phone');
 
-    for (const b of [this.resume, this.restart, this.retry, this.fullscreen, this.help, this.gear, this.pauseSettings, this.raceBtn]) b.setAttribute('data-ui', '');
+    for (const b of [this.resume, this.restart, this.retry, this.fullscreen, this.help, this.gear, this.pauseSettings, this.raceBtn, this.toMenu]) b.setAttribute('data-ui', '');
     this.showOnly(null);
   }
 

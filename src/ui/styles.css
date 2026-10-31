@@ -730,6 +730,34 @@ button {
   color: #e8414a;
 }
 
+/* pause: back to the title */
+.btn-menu {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--u) * 14px);
+  margin-top: calc(var(--u) * 26px);
+  padding: calc(var(--u) * 16px) calc(var(--u) * 40px);
+  border-radius: calc(var(--u) * 50px);
+  background: linear-gradient(#b8a6ff, #8a6cf0);
+  color: #fff7ea;
+  font-family: 'Lilita One', 'Fredoka', sans-serif;
+  font-size: calc(var(--u) * 40px);
+  -webkit-text-stroke: calc(var(--u) * 6px) var(--ink);
+  paint-order: stroke fill;
+  box-shadow: 0 0 0 calc(var(--u) * 5px) var(--ink), 0 calc(var(--u) * 8px) 0 calc(var(--u) * 5px) var(--ink);
+  transition: transform 0.12s;
+}
+.btn-menu:active {
+  transform: translateY(calc(var(--u) * 6px));
+  box-shadow: 0 0 0 calc(var(--u) * 5px) var(--ink), 0 calc(var(--u) * 2px) 0 calc(var(--u) * 5px) var(--ink);
+}
+.btn-menu svg {
+  width: calc(var(--u) * 46px);
+  height: calc(var(--u) * 46px);
+  color: #ffd23f;
+}
+
 /* ---------- screens ---------- */
 .screen {
   position: absolute;
