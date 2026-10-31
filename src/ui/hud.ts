@@ -27,6 +27,8 @@ export class Hud {
   private readonly dotsBox: HTMLDivElement;
   private readonly dial: HTMLDivElement;
   private readonly orb: HTMLDivElement;
+  private roll = 0;
+  private lastTarget = 0;
   private shown = { score: -1, kmh: -1, tier: -1, streak: -1, fever: false, day: -1, night: -1 };
 
   constructor(parent: HTMLElement) {
@@ -52,9 +54,22 @@ export class Hud {
     this.root.classList.toggle('hidden', !on);
   }
 
-  update(run: Run, sky: SkyState): void {
-    const s = this.shown;
-    const score = Math.floor(run.score.total);
+  update(dt: number, run: Run, sky: SkyState): void {
+    const s = this.shown, J = CONFIG.juice;
+    // the counter rolls up to the real score; big jumps bump it
+    const target = Math.floor(run.score.total);
+    if (target < this.roll) this.roll = target;
+    else if (target > this.roll) {
+      if (target - this.roll >= J.scoreBump && target - this.lastTarget >= J.scoreBump) {
+        this.score.classList.remove('bump');
+        void this.score.offsetWidth;
+        this.score.classList.add('bump');
+      }
+      this.roll += (target - this.roll) * (1 - Math.exp(-dt * J.scoreRoll));
+      if (target - this.roll < 1) this.roll = target;
+    }
+    this.lastTarget = target;
+    const score = Math.floor(this.roll);
     if (score !== s.score) {
       s.score = score;
       this.score.textContent = fmt(score);

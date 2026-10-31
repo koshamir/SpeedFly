@@ -30,6 +30,9 @@ export class Renderer {
   private cur!: TerrainCursor;
   /** Draw calls of the last frame (budget <= 30). */
   drawCalls = 0;
+  /** Touch Teacher rim strength (set by main). */
+  teacher = 0;
+  private feverK = 0;
   private snap = true;
   private time = 0;
   private readonly sky = new Sky();
@@ -117,12 +120,17 @@ export class Renderer {
     const margin = CONFIG.render.meshStep * 4;
     this.sky.update(s, L.gw / L.gh, this.time, r.cx, r.cy, r.z, L.logW, L.logH);
     this.clouds.update(r.cx, r.cy, r.z, r.viewW, r.viewH, L.logW, this.time, s);
-    this.terrain.update(x0 - margin, x1 + margin, pxPerWorld, s.grade);
+    this.terrain.update(x0 - margin, x1 + margin, pxPerWorld, s.grade, this.teacher);
     this.water.update(run.world, x0, x1, this.time, pxPerWorld, s.grade, s.horizon);
     this.coins.update(run.world, x0 - margin, x1 + margin, this.time, s.grade);
     this.bird.update(dt, run, cx, cy, d1, r.birdScale, asleep, s.grade);
     this.fx.update(live || asleep ? dt : 0, cx, cy, r.birdScale, x0, r.cy - r.viewH / 2, r.z, L.logW, L.logH, s.grade, live);
     this.night.update(x0, x1, run.night.x, L.gw / L.gh);
+    // Fever: pulsing hue-cycling screen tint (edges weighted)
+    const J = CONFIG.juice, tint = this.night.tint;
+    this.feverK += ((run.fever && live ? 1 : 0) - this.feverK) * (1 - Math.exp(-dt * 4));
+    const h = this.time * 0.5 * Math.PI * 2;
+    tint.set(0.75 + 0.25 * Math.cos(h), 0.6 + 0.3 * Math.cos(h - 2.1), 0.7 + 0.3 * Math.cos(h - 4.2), this.feverK * (J.feverTint + J.feverPulse * Math.sin(this.time * 9)));
     this.lines?.update(run, x0 - margin, x1 + margin, cx, cy);
 
     // side bars (desktop) take the sky color

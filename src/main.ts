@@ -3,6 +3,7 @@ import '@fontsource/fredoka/latin-500.css';
 import '@fontsource/fredoka/latin-600.css';
 import './ui/styles.css';
 import tuningFile from '../tuning.json';
+import { Audio } from './audio/audio';
 import { CONFIG } from './config';
 import { EventBus, type GameEvents } from './core/events';
 import { Input } from './core/input';
@@ -11,10 +12,11 @@ import { load, save } from './core/storage';
 import { Renderer } from './render/renderer';
 import { Bot, type BotPolicy } from './sim/bot';
 import { Run } from './sim/run';
-import { Hud } from './ui/hud';
+import { el, Hud } from './ui/hud';
 import { Popups, type PopupKind } from './ui/popups';
 import { applyTuning, parseTuning, worldKey } from './tuning';
 import { Screens } from './ui/screens';
+import { Teacher } from './ui/teacher';
 import type { TunePanel } from './ui/tune';
 import type { TerrainMode } from './world/world';
 
@@ -51,9 +53,29 @@ const input = new Input(root);
 const hud = new Hud(uiRoot);
 const popups = new Popups(uiRoot);
 const screens = new Screens(uiRoot);
+const audio = new Audio(bus);
+const teacher = new Teacher(uiRoot, botPolicy !== null);
+const soundBtn = el('button', 'btn-round btn-sound', uiRoot);
+soundBtn.setAttribute('data-ui', '');
+soundBtn.setAttribute('aria-label', 'Sound');
+soundBtn.innerHTML =
+  '<svg viewBox="0 0 40 40"><path d="M6 15h7l9-8v26l-9-8H6z" fill="#241B3A"/><path class="wave" d="M27 14q4 6 0 12M31 10q7 10 0 20" fill="none" stroke="#241B3A" stroke-width="3.5" stroke-linecap="round"/><path class="cross" d="M27 15l9 10M36 15l-9 10" stroke="#E84A5F" stroke-width="4" stroke-linecap="round"/></svg>';
+const syncSound = (): void => {
+  soundBtn.classList.toggle('off', audio.muted);
+};
+syncSound();
+soundBtn.addEventListener('click', () => {
+  audio.unlock();
+  audio.setMuted(!audio.muted);
+  syncSound();
+});
+// WebAudio needs a user gesture (iOS: inside touchend/pointerdown): unlock on every gesture
+for (const type of ['pointerdown', 'touchend', 'keydown'])
+  window.addEventListener(type, () => audio.unlock(), { capture: true, passive: true });
 let run = new Run(newSeed(), mode, bus);
 let bot = botPolicy ? new Bot(run.world.terrain, botPolicy, botDelay) : null;
 renderer.setRun(run);
+let teachCur = run.world.terrain.cursor();
 
 let best = Number(load('best')) || 0;
 screens.setBest(best);
@@ -65,6 +87,7 @@ let rotated = false;
 function setState(s: State): void {
   state = s;
   stateT = 0;
+  audio.setRunning(s !== 'paused' && !document.hidden);
   loop.simulate = s === 'playing';
   hud.show(s === 'playing' || s === 'paused' || s === 'caught');
   screens.showOnly(s === 'title' ? screens.title : s === 'paused' ? screens.pause : s === 'results' ? screens.results : null);
@@ -85,6 +108,7 @@ function newRun(seed = newSeed()): void {
   run = new Run(seed, mode, bus);
   bot = botPolicy ? new Bot(run.world.terrain, botPolicy, botDelay) : null;
   renderer.setRun(run);
+  teachCur = run.world.terrain.cursor();
   popups.clear();
 }
 
@@ -135,6 +159,7 @@ screens.restart.addEventListener('click', () => {
 screens.retry.addEventListener('click', retry);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && state === 'playing') setState('paused');
+  audio.setRunning(!document.hidden && state !== 'paused');
 });
 
 // ---------- game events -> popups ----------
@@ -145,6 +170,11 @@ bus.on('land', (e) => {
   else if (e.kind === 'splash') popup('splash', 'SPLASH!', 90);
 });
 bus.on('points', (e) => popup('points', `+${e.amount}`, 50));
+// hit-stop: a short render-only freeze on big GREAT streaks
+let hitStop = 0;
+bus.on('land', (e) => {
+  if (e.kind === 'great' && e.streak >= CONFIG.juice.hitStopStreak && botPolicy === null) hitStop = CONFIG.juice.hitStop;
+});
 bus.on('feverStart', () => popup('fever', 'FEVER!', 170));
 bus.on('skyTouch', () => popup('sky', 'SKY TOUCH!', 120));
 bus.on('coin', (e) => e.type === 'blue' && popup('boost', 'BOOST!', 85));
@@ -216,8 +246,13 @@ function frame(dt: number, alpha: number): void {
   if (bot && state === 'results' && stateT >= CONFIG.bot.autoRetry) retry();
 
   const asleep = state === 'title' || state === 'caught' || state === 'results';
-  renderer.frame(dt, alpha, asleep, state === 'playing');
-  hud.update(run, renderer.skyState);
+  teacher.update(dt, run, teachCur, state === 'playing');
+  renderer.teacher = teacher.alpha;
+  // during a hit-stop the canvas keeps its last image; the sim keeps stepping
+  if (hitStop > 0) hitStop -= dt;
+  else renderer.frame(dt, alpha, asleep, state === 'playing');
+  audio.frame(run.speed, !run.bird.grounded && run.held, state === 'playing');
+  hud.update(dt, run, renderer.skyState);
   renderer.toScreen(renderer.bx, renderer.by, scr);
   const u = renderer.layout.gw / renderer.layout.logW;
   popups.update(dt, scr.x, scr.y, u, renderer.layout.gw);
@@ -231,6 +266,10 @@ function frame(dt: number, alpha: number): void {
 }
 
 const loop = new Loop(step, frame);
+renderer.fx.onSonic = () => {
+  renderer.rig.shake(CONFIG.camera.shakeSonic);
+  audio.boom();
+};
 
 function resize(): void {
   const vv = window.visualViewport;

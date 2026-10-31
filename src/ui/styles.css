@@ -124,6 +124,14 @@ button {
   -webkit-text-stroke: calc(var(--u) * 10px) var(--ink);
   paint-order: stroke fill;
 }
+.score.bump {
+  animation: scoreBump 0.3s cubic-bezier(0.3, 1.8, 0.5, 1);
+}
+@keyframes scoreBump {
+  from {
+    transform: scale(1.25);
+  }
+}
 .speed-row {
   margin-top: calc(var(--u) * 2px);
   font-size: calc(var(--u) * 30px);
@@ -208,6 +216,26 @@ button {
 }
 .btn-pause {
   right: calc(var(--u) * 22px);
+}
+.btn-sound {
+  position: absolute;
+  z-index: 30;
+  top: var(--safe-top);
+  right: calc(var(--u) * 126px);
+  width: calc(var(--u) * 70px);
+  height: calc(var(--u) * 70px);
+  margin-top: calc(var(--u) * 7px);
+}
+.btn-sound svg {
+  width: 62%;
+  height: 62%;
+}
+.btn-sound .cross,
+.btn-sound.off .wave {
+  display: none;
+}
+.btn-sound.off .cross {
+  display: inline;
 }
 .btn-pause .bar {
   width: calc(var(--u) * 11px);
@@ -841,5 +869,84 @@ button {
   from {
     transform: translateX(calc(var(--u) * -40px));
     opacity: 0;
+  }
+}
+
+/* ---------- Touch Teacher (§9): just above the bottom 25% (thumb zone stays clear) ---------- */
+.teacher {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 26%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+.teach-label {
+  min-height: calc(var(--u) * 70px);
+  font-family: 'Lilita One', 'Fredoka', sans-serif;
+  font-size: calc(var(--u) * 64px);
+  line-height: 1.1;
+  color: #ffb020;
+  -webkit-text-stroke: calc(var(--u) * 10px) var(--ink);
+  paint-order: stroke fill;
+  transition: transform 0.15s;
+}
+.teacher.hold .teach-label {
+  color: #5cff7a;
+  transform: scale(1.12);
+}
+.teach-finger {
+  position: relative;
+  width: calc(var(--u) * 78px);
+  height: calc(var(--u) * 104px);
+  opacity: 0.55;
+  transition: transform 0.12s, opacity 0.12s;
+}
+.teach-finger svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.teacher.hold .teach-finger {
+  opacity: 0.95;
+  transform: translateY(calc(var(--u) * 16px)) scale(0.92);
+}
+.teacher.soon .teach-finger {
+  opacity: 0.9;
+  animation: fingerTap 0.5s ease-in-out infinite;
+}
+.teach-ring {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: calc(var(--u) * 70px);
+  height: calc(var(--u) * 70px);
+  margin: calc(var(--u) * -30px) 0 0 calc(var(--u) * -40px);
+  border-radius: 50%;
+  border: calc(var(--u) * 6px) solid #5cff7a;
+  opacity: 0;
+}
+.teacher.hold .teach-ring {
+  opacity: 0.9;
+}
+.teacher.soon .teach-ring {
+  animation: ringPulse 0.5s ease-out infinite;
+}
+@keyframes fingerTap {
+  50% {
+    transform: translateY(calc(var(--u) * 12px)) scale(0.95);
+  }
+}
+@keyframes ringPulse {
+  from {
+    opacity: 0.9;
+    transform: scale(0.5);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.4);
   }
 }

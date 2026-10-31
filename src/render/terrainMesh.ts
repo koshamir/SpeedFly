@@ -17,6 +17,7 @@ interface Chunk {
   wet: Float32Array;
   isl2: Float32Array;
   mix: Float32Array;
+  slope: Float32Array;
   id: number; // chunk index (x / chunkWidth), NaN = free
 }
 
@@ -66,6 +67,9 @@ export class TerrainMesh {
         uSheen: { value: R.sheen },
         uSheenDist: { value: R.sheenDist },
         uGrain: { value: R.grain },
+        uTeacher: { value: 0 },
+        uHoldCol: { value: new THREE.Color(...hexRgb(CONFIG.teacher.holdColor)) },
+        uLetCol: { value: new THREE.Color(...hexRgb(CONFIG.teacher.letGoColor)) },
         uShadeDist: { value: R.shadeDist },
         uShadeMin: { value: R.shadeMin },
         uWobble: { value: new THREE.Vector4(R.bandWobbleA, R.bandWobbleB, R.bandFreqA, R.bandFreqB) },
@@ -92,6 +96,7 @@ export class TerrainMesh {
       const wet = new Float32Array(n);
       const isl2 = new Float32Array(n * 4);
       const mix = new Float32Array(n);
+      const slope = new Float32Array(n);
       const g = new THREE.BufferGeometry();
       g.setIndex(index);
       g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -100,12 +105,13 @@ export class TerrainMesh {
       g.setAttribute('aWet', new THREE.BufferAttribute(wet, 1));
       g.setAttribute('aIsl2', new THREE.BufferAttribute(isl2, 4));
       g.setAttribute('aMix', new THREE.BufferAttribute(mix, 1));
+      g.setAttribute('aSlope', new THREE.BufferAttribute(slope, 1));
       const mesh = new THREE.Mesh(g, this.material);
       mesh.frustumCulled = false;
       mesh.visible = false;
       mesh.renderOrder = 3;
       this.group.add(mesh);
-      this.chunks.push({ mesh, pos, depth, isl, wet, isl2, mix, id: NaN });
+      this.chunks.push({ mesh, pos, depth, isl, wet, isl2, mix, slope, id: NaN });
     }
   }
 
@@ -118,7 +124,8 @@ export class TerrainMesh {
     }
   }
 
-  update(x0: number, x1: number, pxPerWorld: number, grade: RGB): void {
+  /** teacher: Touch Teacher rim strength 0..1 (§9). */
+  update(x0: number, x1: number, pxPerWorld: number, grade: RGB, teacher = 0): void {
     const W = CONFIG.render.chunkWidth;
     const i0 = Math.floor(x0 / W), i1 = Math.floor(x1 / W);
     for (const c of this.chunks) {
@@ -139,6 +146,7 @@ export class TerrainMesh {
     const R = CONFIG.render;
     u.uPxPerWorld.value = pxPerWorld;
     u.uGrain.value = R.grain;
+    u.uTeacher.value = teacher;
     u.uSheen.value = R.sheen;
     u.uRimW.value = R.rimWidth;
     (u.uGrade.value as THREE.Color).setRGB(grade[0], grade[1], grade[2]);
@@ -178,6 +186,8 @@ export class TerrainMesh {
       c.pos[b + 1] = bottom;
       c.wet[i * 2] = c.wet[i * 2 + 1] = wet;
       c.mix[i * 2] = c.mix[i * 2 + 1] = mix;
+      // surface slope for the Touch Teacher rim (downhill = HOLD, uphill = LET GO)
+      c.slope[i * 2] = c.slope[i * 2 + 1] = wet > 0 ? 0 : (this.cur.height(x + 2) - this.cur.height(x - 2)) / 4;
       c.depth[i * 2] = 0;
       c.depth[i * 2 + 1] = y - bottom;
       for (let v = 0; v < 2; v++) {
@@ -199,6 +209,7 @@ export class TerrainMesh {
     g.attributes.aWet.needsUpdate = true;
     g.attributes.aIsl2.needsUpdate = true;
     g.attributes.aMix.needsUpdate = true;
+    g.attributes.aSlope.needsUpdate = true;
     c.id = id;
     c.mesh.visible = true;
   }

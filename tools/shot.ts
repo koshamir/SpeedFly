@@ -19,6 +19,7 @@ interface Session {
   shots: Shot[];
   desktop?: boolean; // 1600x900 @1x mouse instead of the 720x1280 @2x phone
   init?: string; // script run before the page loads (e.g. storage for an open Tune panel)
+  act?: string; // script run once the game is up (e.g. a synthetic tap to start without the bot)
 }
 
 const SESSIONS: Session[] = [
@@ -44,6 +45,15 @@ const SESSIONS: Session[] = [
       { name: '12-dusk', when: 'sd.run().daylight < 0.3', timeout: 90000 },
       { name: '13-night', when: 'sd.run().daylight < 0.06', timeout: 90000 },
       { name: '14-results', when: "sd.state() === 'results'", delay: 900, timeout: 90000 },
+    ],
+  },
+  {
+    // no bot: a tap starts the run, the Touch Teacher is on (fresh storage)
+    query: '?seed=3',
+    act: "(() => { const r = document.getElementById('root'); const o = { pointerId: 1, bubbles: true, button: 0, pointerType: 'touch' }; r.dispatchEvent(new PointerEvent('pointerdown', o)); setTimeout(() => r.dispatchEvent(new PointerEvent('pointerup', o)), 1200); })()",
+    shots: [
+      { name: '17-teacher-hold', when: "sd.state() === 'playing' && document.querySelector('.teacher.hold') && sd.run().t > 0.8" },
+      { name: '18-teacher-let', when: "document.querySelector('.teacher.let, .teacher.soon') && sd.run().t > 1.5" },
     ],
   },
   {
@@ -114,6 +124,7 @@ async function runSession(browser: Browser, base: string, s: Session): Promise<s
   });
   await page.goto(base + s.query);
   await page.waitForFunction('!!window.__sd', null, { timeout: 20000 });
+  if (s.act) await page.evaluate(s.act);
   const only = process.argv.slice(2);
   for (const shot of s.shots) {
     if (only.length && !only.some((p) => shot.name.startsWith(p))) continue;

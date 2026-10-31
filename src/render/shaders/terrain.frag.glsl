@@ -16,6 +16,9 @@ uniform float uGrain;
 uniform vec3 uWater;       // seabed tint
 uniform float uWetTint;
 uniform float uWetDepth;
+uniform float uTeacher;    // Touch Teacher (§9): green rim downhill, amber uphill
+uniform vec3 uHoldCol;
+uniform vec3 uLetCol;
 
 varying float vDepth;
 varying float vX;
@@ -23,6 +26,7 @@ varying vec4 vIsl;
 varying float vWet;
 varying vec4 vIsl2;
 varying float vMix;
+varying float vSlope;
 
 vec3 pal(float i, int p) {
   return texelFetch(uPal, ivec2(min(int(i + 0.5), 4), p), 0).rgb;
@@ -61,6 +65,15 @@ void main() {
     rim = mix(rim, texelFetch(uPal, ivec2(5, int(vIsl2.x + 0.5)), 0).rgb, vMix);
   }
   float rimW = max(uRimW, uRimMinPx * aa);
+  if (uTeacher > 0.001) {
+    float down = smoothstep(-0.06, -0.2, vSlope), up = smoothstep(0.06, 0.2, vSlope);
+    float k = uTeacher * max(down, up);
+    vec3 tc = down > up ? uHoldCol : uLetCol;
+    rim = mix(rim, tc, k);
+    rimW *= 1.0 + 1.6 * k;
+    // a soft glow of the advice colour under the rim
+    col = mix(col, tc, 0.35 * k * (1.0 - smoothstep(rimW, rimW + 40.0, d)));
+  }
   // sheen just under the surface, then the thin inner shadow line below the rim
   col *= 1.0 + uSheen * (1.0 - smoothstep(rimW, rimW + uSheenDist, d));
   col *= 0.85 + 0.15 * smoothstep(rimW, rimW + uInner, d);

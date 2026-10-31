@@ -130,7 +130,7 @@ export class Fx {
       const a = rnd(0, Math.PI * 2), v = rnd(80, blue ? 380 : 220);
       p.emit(Frame.Sparkle, x, y, Math.cos(a) * v, Math.sin(a) * v, rnd(0.3, 0.55), rnd(18, blue ? 34 : 26), 4, i % 2 ? col : this.c.white, 1, 0.9, 0, 3, rnd(0, 3), rnd(-5, 5));
     }
-    p.emit(Frame.Ring, x, y, 0, 0, 0.3, 16, blue ? 140 : 70, col, 0.9, 1, 0, 0, 0, 0, PF.Grow);
+    p.emit(Frame.Ring, x, y, 0, 0, 0.25, 12, blue ? 120 : 44, col, blue ? 0.9 : 0.55, 1, 0, 0, 0, 0, PF.Grow);
   }
 
   private feverBurst(): void {

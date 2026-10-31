@@ -426,6 +426,43 @@ export const CONFIG = {
     vignette: 0.22,
   },
 
+  // Touch Teacher (§9): until 3 GREATs (localStorage flag) or the end of island 1.
+  teacher: {
+    holdColor: '#5CFF7A',
+    letGoColor: '#FFB020',
+    greats: 3,
+    fade: 1.2, // s
+    lookAhead: 0.18, // s of path ahead used for the advice
+    slope: 0.08, // |h'| above which the advice is shown
+    fingerAhead: 0.45, // s: the ghost finger pulses this long before a downslope
+  },
+
+  // Juice (M4)
+  juice: {
+    hitStop: 0.04, // s, render-only freeze on GREAT x3+ (the sim never stops)
+    hitStopStreak: 3,
+    scoreRoll: 12, // 1/s: the score counter rolls up to the real score
+    scoreBump: 100, // a jump of at least this many points bumps the counter
+    feverTint: 0.09, // screen tint amount in Fever (pulsing +-feverPulse)
+    feverPulse: 0.05,
+  },
+
+  // Audio (§8): gains 0..1, frequencies in Hz.
+  audio: {
+    master: 0.8,
+    sfx: 0.9,
+    wind: 0.32, // wind loop at full speed
+    windDive: 1.45, // louder while diving
+    windFullSpeed: 2600, // px/s
+    windCut0: 350, // wind band centre at rest / at full speed
+    windCut1: 2600,
+    bellBase: 783.99, // GREAT bell (G5), +1 pentatonic step per streak step
+    coinBase: 1046.5, // coin blip (C6), rising within a chain
+    shimmer: 0.045, // Fever loop level
+    music: 0.45, // optional src/audio/music.mp3
+    musicCut: [700, 1200, 2400, 6000, 18000], // music lowpass per speed tier
+  },
+
   debug: {
     fpsSmooth: 0.1,
     normalLen: 40,
