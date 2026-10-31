@@ -28,14 +28,18 @@ export class Hud {
   private readonly dotsBox: HTMLDivElement;
   private readonly dial: HTMLDivElement;
   private readonly orb: HTMLDivElement;
+  private readonly trend: HTMLDivElement;
+  private dayS = 1;
   private roll = 0;
   private lastTarget = 0;
-  private shown = { score: -1, kmh: -1, tier: -1, streak: -1, fever: false, day: -1, night: -1 };
+  private shown = { score: -1, kmh: -1, tier: -1, streak: -1, fever: false, day: -1, night: -1, trend: 99, near: false };
 
   constructor(parent: HTMLElement) {
     this.root = el('div', 'hud', parent);
     this.dial = el('div', 'dial', this.root);
     this.orb = el('div', 'dial-orb', this.dial);
+    // night trend under the dial: ▲ the day grows (gold), ▼ the night comes (violet); 1–3 chevrons = how fast
+    this.trend = el('div', 'dial-trend', this.root);
     const box = el('div', 'score-box', this.root);
     this.score = el('div', 'score', box, '0');
     const row = el('div', 'speed-row', box);
@@ -109,8 +113,22 @@ export class Hud {
       this.dots.forEach((d, i) => d.classList.toggle('on', run.fever || i < streak));
       this.dotsBox.classList.toggle('fever', run.fever);
     }
-    // day dial: remaining daylight ring + sky colors, sun -> moon
-    const day = Math.round(run.daylight * 200) / 200;
+    // day dial: remaining daylight ring (eased, so pushes visibly fill it) + sky colors, sun -> moon
+    this.dayS += (run.daylight - this.dayS) * Math.min(1, dt * J.dialEase);
+    const day = Math.round(this.dayS * 200) / 200;
+    const r = run.night.rate, T = J.trendSteps;
+    const n = Math.abs(r) < T[0] ? 0 : Math.abs(r) < T[1] ? 1 : Math.abs(r) < T[2] ? 2 : 3;
+    const trend = run.daylight >= 0.999 && r >= 0 ? 0 : r < 0 ? -n : n;
+    if (trend !== s.trend) {
+      s.trend = trend;
+      this.trend.textContent = (trend > 0 ? '▲' : '▼').repeat(Math.abs(trend));
+      this.trend.className = `dial-trend ${trend > 0 ? 'up' : 'down'}`;
+    }
+    if (run.nightNear !== s.near) {
+      s.near = run.nightNear;
+      this.dial.classList.toggle('danger', s.near);
+      this.trend.classList.toggle('danger', s.near);
+    }
     if (day !== s.day || sky.night !== s.night) {
       s.day = day;
       s.night = sky.night;

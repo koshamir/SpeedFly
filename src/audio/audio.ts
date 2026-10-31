@@ -453,6 +453,30 @@ export class Audio {
     });
   }
 
+  /** The night is close: two low pulsing tones (a heartbeat-ish warning). */
+  nightWarn(): void {
+    const ctx = this.ok();
+    if (!ctx) return;
+    const t = ctx.currentTime, a = CONFIG.audio.nightWarn;
+    for (const dt of [0, 0.22]) {
+      this.tone('sine', 98, 70, t + dt, a, 0.01, 0.25);
+      this.tone('triangle', 196, 185, t + dt, a * 0.35, 0.01, 0.2);
+    }
+  }
+
+  /** Passing the best distance: a bright rising arpeggio. */
+  record(): void {
+    const ctx = this.ok();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    [0, 4, 7, 12, 16, 19, 24, 28].forEach((n, i) => {
+      const f = 523.25 * semi(n);
+      this.tone('triangle', f, f, t + i * 0.05, 0.14, 0.004, i === 7 ? 1 : 0.18);
+      this.tone('square', f, f, t + i * 0.05, 0.03, 0.004, 0.12);
+    });
+    this.noiseHit(t, 'highpass', 4000, 9000, 0.6, 0.12, 0.01, 0.6);
+  }
+
   /** Button tap. */
   click(): void {
     const ctx = this.ok();

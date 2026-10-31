@@ -8,7 +8,7 @@ import { CONFIG } from './config';
 import { EventBus, type GameEvents } from './core/events';
 import { Input } from './core/input';
 import { Loop } from './core/loop';
-import { load, save } from './core/storage';
+import { loadRecords, submitRecords } from './core/records';
 import { Quality } from './render/quality';
 import { Renderer } from './render/renderer';
 import { Bot, type BotPolicy } from './sim/bot';
@@ -82,8 +82,14 @@ let bot = botPolicy ? new Bot(run.world.terrain, botPolicy, botDelay) : null;
 renderer.setRun(run);
 let teachCur = run.world.terrain.cursor();
 
-let best = Number(load('best')) || 0;
-screens.setBest(best);
+const records = loadRecords();
+screens.setBest(records.score);
+// best-distance flag in the world + the "NEW RECORD!" moment when the bird passes it
+const flagEl = el('div', 'best-flag', uiRoot);
+el('span', 'best-flag-label', flagEl, 'BEST');
+let flagCur = run.world.terrain.cursor();
+let recordPassed = false;
+const flagPt = { x: 0, y: 0 };
 let state: State = 'title';
 let stateT = 0;
 let stepsThisFrame = 0;
@@ -98,17 +104,22 @@ function setState(s: State): void {
   else if (s === 'results') audio.setMood('results');
   loop.simulate = s === 'playing';
   hud.show(s === 'playing' || s === 'paused' || s === 'caught');
+  if (s === 'caught') screens.zzz.classList.add('visible');
+  if (s === 'caught') popups.showBanner('GOOD NIGHT', `${Math.floor(run.score.meters)} m · island ${run.island}`);
   screens.showOnly(s === 'title' ? screens.title : s === 'paused' ? screens.pause : s === 'results' ? screens.results : null);
   if (s === 'results') {
-    const total = Math.floor(run.score.total);
-    const isNew = total > best;
-    if (isNew) {
-      best = total;
-      save('best', String(best));
-      screens.setBest(best);
-    }
-    screens.fillResults(run, best, isNew);
-    audio.results(isNew);
+    const sc = run.score, prevBest = records.score;
+    const broken = submitRecords(records, {
+      score: Math.floor(sc.total),
+      distM: Math.floor(sc.meters),
+      island: run.island,
+      streak: sc.bestStreak,
+      kmh: Math.round(sc.maxSpeed * CONFIG.speed.kmhPerPx),
+    });
+    const isNew = Math.floor(sc.total) > prevBest && prevBest > 0;
+    screens.setBest(records.score);
+    screens.fillResults(run, records, broken, isNew);
+    audio.results(isNew || broken.length > 0);
     screens.setRetryLocked(true);
   }
 }
@@ -121,6 +132,8 @@ function newRun(seed = newSeed()): void {
   bot = botPolicy ? new Bot(run.world.terrain, botPolicy, botDelay) : null;
   renderer.setRun(run);
   teachCur = run.world.terrain.cursor();
+  flagCur = run.world.terrain.cursor();
+  recordPassed = false;
   popups.clear();
 }
 
@@ -200,6 +213,12 @@ bus.on('land', (e) => {
   // BAD: no text — the thud and the streak dots resetting say it
 });
 bus.on('points', (e) => popup('points', `+${e.amount}`, 50));
+bus.on('dayGain', (e) => popup('day', e.reason === 'island' ? '+DAY ☀' : '+DAY', e.reason === 'great' ? 140 : 190));
+bus.on('nightNear', (e) => {
+  if (!e.near || state !== 'playing') return;
+  audio.nightWarn();
+  flash(0.25, '#2B2C66');
+});
 // hit-stop: a short render-only freeze on big GREAT streaks
 let hitStop = 0;
 bus.on('land', (e) => {
@@ -348,16 +367,42 @@ function frame(dt: number, alpha: number): void {
   else renderer.frame(dt, alpha, asleep, state === 'playing');
   audio.frame(run.speed, !run.bird.grounded && run.held && run.flightK === 0, state === 'playing', renderer.rig.cine);
   hud.update(dt, run, renderer.skyState);
+  updateFlag();
   renderer.toScreen(renderer.bx, renderer.by, scr);
   const u = renderer.layout.gw / renderer.layout.logW;
   popups.update(dt, scr.x, scr.y, u, renderer.layout.gw);
-  if (state === 'title' || state === 'results') {
+  if (state === 'title' || state === 'results' || state === 'caught') {
     screens.zzz.style.left = `${scr.x + 26 * u}px`;
     screens.zzz.style.top = `${scr.y - 90 * u}px`;
   }
   debug?.frame(dt, stepsThisFrame, renderer.rig.z, run.held);
   tune?.frame(dt);
   stepsThisFrame = 0;
+}
+
+/** BEST flag on the terrain at the record distance; passing it = NEW RECORD! */
+function updateFlag(): void {
+  const bestPx = records.distM * CONFIG.speed.pxPerMeter;
+  const on = state === 'playing' && records.distM >= CONFIG.score.recordAt && !recordPassed;
+  if (on && run.score.distPx >= bestPx) {
+    recordPassed = true;
+    popups.showBanner('NEW RECORD!', `past ${Math.floor(records.distM)} m — keep going!`);
+    flash(0.5, '#FFE14D');
+    renderer.rig.shake(CONFIG.camera.shakeFever);
+    audio.record();
+  }
+  if (!on || recordPassed || bestPx - run.score.distPx > CONFIG.ui.flagAhead) {
+    flagEl.style.display = 'none';
+    return;
+  }
+  renderer.toScreen(bestPx, flagCur.height(bestPx), flagPt);
+  const L = renderer.layout;
+  if (flagPt.x < -40 || flagPt.x > L.gw + 40) {
+    flagEl.style.display = 'none';
+    return;
+  }
+  flagEl.style.display = '';
+  flagEl.style.transform = `translate(${flagPt.x}px, ${flagPt.y}px)`;
 }
 
 const loop = new Loop(step, frame);

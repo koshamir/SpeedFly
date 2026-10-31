@@ -227,18 +227,40 @@ export const CONFIG = {
   },
 
   night: {
-    startGap: 2500, // xNight(t) = -startGap + v0 t + accel t^2 / 2
-    v0: 300,
-    accel: 8,
-    daylightGap: 2500, // daylight = clamp(gap / this)
-    islandPushback: 1200,
+    // "Speed and skill buy daylight" (SPEC §5). Night front speed (islands terrain):
+    //   vNight(t) = v0 + grow (1 - e^(-t/tau)) + creep t   (t = night time; it waits during island sequences)
+    // reference terrain keeps the historical xNight = -startGap + v0 t + accel t^2 / 2 (npm run sim table).
+    startGap: 3000,
+    v0: 300, // px/s at the first touch: a new player outruns it at first
+    accel: 8, // reference terrain only (with refStartGap / refV0)
+    refStartGap: 2500,
+    refV0: 300,
+    refIslandPush: 1200,
+    grow: 650, // rises toward v0 + grow over ~tau s (difficulty)
+    tau: 150,
+    creep: 0.5, // px/s^2 forever: the night always wins in the end
+    daylightGap: 6000, // daylight = clamp(gap / this): the HUD dial and the sky
+    maxGap: 6000, // the gap never exceeds this: daylight can't be banked
+    // pushes (px of gap = daylight x daylightGap)
+    greatPush: 180, // GREAT, + greatStep per streak step, <= greatMax
+    greatStep: 60,
+    greatMax: 480,
+    feverPush: 160, // per s in Fever
+    skyPush: 600,
+    islandPushback: 2400, // reaching a new island
+    perfectPush: 900, // PERFECT island landing
+    popupMin: 0.02, // "+DAY" popup when a push gains at least this much daylight
+    rateSmooth: 2.5, // 1/s smoothing of the dial's trend arrow
+    dangerAt: 0.22, // daylight below this: warning pulse + sound
+    dangerOff: 0.3,
     frontWidth: 600,
     frontAlpha: 0.88,
-    caughtTime: 1.2,
+    caughtTime: 2.6, // sunset -> sleep moment before the results
   },
 
   score: {
     distPerPt: 10,
+    tierBonus: 0.25, // distance points x (1 + this x speed tier): speed pays
     flightMin: 1,
     flightPerSec: 50,
     greatBase: 100,
@@ -250,6 +272,7 @@ export const CONFIG = {
     islandPer: 500,
     islandLanding: 300, // x k: the scripted island landing ("PERFECT LANDING")
     feverMul: 2,
+    recordAt: 300, // m: "NEW RECORD!" only once the old best distance was at least this
     feverStreak: 3,
   },
 
@@ -412,6 +435,7 @@ export const CONFIG = {
   },
 
   ui: {
+    flagAhead: 3000, // px: the BEST flag is placed once it is this close (no terrain generated far ahead)
     retryLock: 0.6,
     popupMax: 4,
     popupLife: 0.7,
@@ -525,6 +549,8 @@ export const CONFIG = {
     hitStop: 0.04, // s, render-only freeze on GREAT x3+ (the sim never stops)
     hitStopStreak: 3,
     scoreRoll: 12, // 1/s: the score counter rolls up to the real score
+    dialEase: 4, // 1/s: the day dial (and the sky) ease toward the real daylight
+    trendSteps: [0.006, 0.03, 0.07], // |d daylight/dt| (1/s) for 1 / 2 / 3 trend chevrons
     scoreBump: 100, // a jump of at least this many points bumps the counter
     feverTint: 0.09, // screen tint amount in Fever (pulsing +-feverPulse)
     feverPulse: 0.05,
@@ -562,6 +588,7 @@ export const CONFIG = {
     bpm: 116, // procedural soundtrack tempo (used when src/audio/music.mp3 is absent)
     swish: 0.22, // takeoff swish
     tierUp: 0.16, // speed tier up riser + chime
+    nightWarn: 0.4, // night-near warning pulse
   },
 
   debug: {

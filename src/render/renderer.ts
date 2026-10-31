@@ -39,6 +39,8 @@ export class Renderer {
   private dprCap = Infinity;
   private grainK = 1;
   private snap = true;
+  private dayShown = 1;
+  private snapDay = true;
   private time = 0;
   private readonly sky = new Sky();
   private readonly clouds = new Clouds();
@@ -77,6 +79,7 @@ export class Renderer {
   }
 
   setRun(run: Run): void {
+    this.snapDay = true;
     this.run = run;
     this.cur = run.world.terrain.cursor();
     this.terrain.reset(run.world);
@@ -184,7 +187,10 @@ export class Renderer {
 
     const x0 = r.cx - r.viewW / 2, x1 = r.cx + r.viewW / 2;
     const pxPerWorld = (L.gw * L.dpr) / r.viewW;
-    const s = skyAt(run.daylight, this.skyState);
+    // the sky follows the daylight smoothly (a push brightens it over ~0.5 s instead of a cut)
+    this.dayShown = this.snapDay ? run.daylight : this.dayShown + (run.daylight - this.dayShown) * Math.min(1, dt * CONFIG.juice.dialEase);
+    this.snapDay = false;
+    const s = skyAt(this.dayShown, this.skyState);
     const margin = CONFIG.render.meshStep * 4;
     this.islandMood(cx);
     this.sky.update(s, L.gw / L.gh, this.time, r.cx, r.cy, r.z, L.logW, L.logH, this.islDark, this.islRim);

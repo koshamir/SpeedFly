@@ -22,6 +22,10 @@ export interface GameEvents {
   speedTier: { tier: number; prev: number };
   caught: { x: number };
   points: { amount: number; x: number; y: number };
+  // skill pushed the night back by `amount` daylight (0..1)
+  dayGain: { amount: number; reason: 'great' | 'sky' | 'island' | 'perfect'; x: number; y: number };
+  // the night came within / went back out of the danger zone
+  nightNear: { near: boolean };
 }
 
 type Handler<T> = (e: T) => void;

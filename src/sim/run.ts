@@ -5,14 +5,14 @@ import { World, type TerrainMode } from '../world/world';
 import type { TerrainCursor } from '../world/terrain';
 import { Bird, EV_LAND, EV_TAKEOFF, speedOf, step } from './bird';
 import { Night } from './night';
-import { Scoring } from './scoring';
+import { Scoring, type ScoreCat } from './scoring';
 
 // One run of the game (deterministic, no three.js / DOM). main.ts owns the state machine.
 export class Run {
   readonly world: World;
   readonly bird = new Bird();
   readonly cur: TerrainCursor;
-  readonly night = new Night();
+  readonly night: Night;
   readonly score = new Scoring();
   started = false;
   over = false;
@@ -62,6 +62,10 @@ export class Run {
   private readonly eTier: GameEvents['speedTier'] = { tier: 0, prev: 0 };
   private readonly eCaught: GameEvents['caught'] = { x: 0 };
   private readonly ePoints: GameEvents['points'] = { amount: 0, x: 0, y: 0 };
+  private readonly eDay: GameEvents['dayGain'] = { amount: 0, reason: 'great', x: 0, y: 0 };
+  private readonly eNear: GameEvents['nightNear'] = { near: false };
+  /** The night is within CONFIG.night.dangerAt (hysteresis dangerOff). */
+  nightNear = false;
 
   constructor(
     readonly seed: number,
@@ -69,6 +73,7 @@ export class Run {
     private readonly bus: GameBus,
   ) {
     this.world = new World(seed, mode);
+    this.night = new Night(mode === 'reference');
     this.cur = this.world.terrain.cursor();
     const startX = mode === 'reference' ? CONFIG.terrain.refStartX : 0;
     const P = CONFIG.physics;
@@ -103,10 +108,13 @@ export class Run {
     this.updateCenter();
     if (b.ev === EV_LAND) this.onLand();
 
-    // distance points (x2 in Fever)
+    // distance points: faster tiers earn more per px (x2 in Fever)
     this.score.distPx += b.x - x0;
-    this.score.add((b.x - x0) / CONFIG.score.distPerPt, this.fever);
-    if (this.fever) this.score.feverTime += P.dt;
+    this.score.add(((b.x - x0) / CONFIG.score.distPerPt) * (1 + CONFIG.score.tierBonus * this.tier), this.fever, 'dist');
+    if (this.fever) {
+      this.score.feverTime += P.dt;
+      if (!this.night.legacy) this.night.push(CONFIG.night.feverPush * P.dt, b.x); // Fever holds the night back (no popup: the dial shows it)
+    }
 
     if (!b.grounded && !this.skyTouched && this.cy > CONFIG.sky.cloudY) this.onSkyTouch();
     this.pickCoins();
@@ -120,7 +128,13 @@ export class Run {
     const sq = L[this.seqIdx];
     this.inSequence = b.x >= sq.summitX - CONFIG.islands.safeBefore && b.x < sq.targetX;
     if (this.inSequence) this.nightPaused += P.dt;
-    this.night.t = this.t - this.nightPaused;
+    this.night.advance(this.inSequence ? 0 : P.dt, b.x, P.dt);
+    const day = this.night.daylight(b.x), N = CONFIG.night;
+    if (this.nightNear ? day > N.dangerOff : day < N.dangerAt) {
+      this.nightNear = !this.nightNear;
+      this.eNear.near = this.nightNear;
+      this.bus.emit('nightNear', this.eNear);
+    }
     if (this.night.x >= b.x) {
       this.over = true;
       if (this.fever) this.endFever();
@@ -129,8 +143,21 @@ export class Run {
     }
   }
 
-  private points(amount: number): void {
-    const p = this.score.add(amount, this.fever);
+  /** Skill pushes the night back; a visible gain becomes a "+DAY" moment. */
+  private pushNight(px: number, reason: GameEvents['dayGain']['reason']): void {
+    if (this.night.legacy && reason !== 'island') return; // reference terrain: the historical rule
+    const g = this.night.push(px, this.bird.x);
+    if (g < CONFIG.night.popupMin) return;
+    const e = this.eDay;
+    e.amount = g;
+    e.reason = reason;
+    e.x = this.cx;
+    e.y = this.cy;
+    this.bus.emit('dayGain', e);
+  }
+
+  private points(amount: number, cat: ScoreCat): void {
+    const p = this.score.add(amount, this.fever, cat);
     if (p < 1) return;
     const e = this.ePoints;
     e.amount = Math.round(p);
@@ -216,7 +243,10 @@ export class Run {
     this.lastKind = kind;
     this.lastAngle = b.evAngle;
     sc.landings++;
-    if (kind === 'great') sc.greats++;
+    if (kind === 'great') {
+      sc.greats++;
+      if (b.streak > sc.bestStreak) sc.bestStreak = b.streak;
+    }
     else if (kind === 'bad') sc.bads++;
     else if (kind === 'splash') sc.splashes++;
     // streak / Fever (Fever never touches physics)
@@ -251,11 +281,22 @@ export class Run {
       this.flightK = 0;
       this.sky.n = 0;
       this.bus.emit('islandLand', f);
-      this.points(Scoring.landing(kind === 'great', b.evAirTime, b.streak));
-      this.points(CONFIG.score.islandLanding * f.k);
+      this.landPoints(kind === 'great', b.evAirTime, b.streak);
+      this.points(CONFIG.score.islandLanding * f.k, 'island');
+      if (kind === 'great') this.pushNight(CONFIG.night.perfectPush, 'perfect');
       return;
     }
-    this.points(Scoring.landing(kind === 'great', b.evAirTime, b.streak));
+    this.landPoints(kind === 'great', b.evAirTime, b.streak);
+    if (kind === 'great') {
+      const N = CONFIG.night;
+      this.pushNight(Math.min(N.greatMax, N.greatPush + N.greatStep * (b.streak - 1)), 'great');
+    }
+  }
+
+  private landPoints(great: boolean, air: number, streak: number): void {
+    const S = CONFIG.score;
+    if (air >= S.flightMin) this.points(S.flightPerSec * air, 'flight');
+    if (great) this.points(Math.min(S.greatMax, S.greatBase + S.greatStep * (streak - 1)), 'great');
   }
 
   private endFever(): void {
@@ -270,7 +311,8 @@ export class Run {
     this.eSky.x = this.cx;
     this.eSky.y = this.cy;
     this.bus.emit('skyTouch', this.eSky);
-    this.points(CONFIG.score.skyTouch);
+    this.points(CONFIG.score.skyTouch, 'sky');
+    this.pushNight(CONFIG.night.skyPush, 'sky');
   }
 
   private pickCoins(): void {
@@ -305,7 +347,7 @@ export class Run {
       e.y = c.y[j];
       e.chain = this.chain;
       this.bus.emit('coin', e);
-      this.score.add(blue ? CONFIG.score.blueCoin : CONFIG.score.coin, this.fever);
+      this.score.add(blue ? CONFIG.score.blueCoin : CONFIG.score.coin, this.fever, 'coins');
     }
     const s = this.sky;
     for (let j = 0; j < s.n; j++) {
@@ -322,7 +364,7 @@ export class Run {
       e.y = s.y[j];
       e.chain = this.chain;
       this.bus.emit('coin', e);
-      this.score.add(CONFIG.score.coin, this.fever);
+      this.score.add(CONFIG.score.coin, this.fever, 'coins');
     }
   }
 
@@ -333,10 +375,10 @@ export class Run {
       this.islandIdx++;
       this.island = k + 1;
       this.score.islands++;
-      this.night.push += CONFIG.night.islandPushback;
       this.eIsland.index = k + 1;
       this.bus.emit('island', this.eIsland);
-      this.points(CONFIG.score.islandPer * k);
+      this.points(CONFIG.score.islandPer * k, 'island');
+      this.pushNight(this.night.legacy ? CONFIG.night.refIslandPush : CONFIG.night.islandPushback, 'island');
     }
   }
 

@@ -1,5 +1,7 @@
 import { CONFIG } from '../config';
 import type { Run } from '../sim/run';
+import type { RecordKey, Records } from '../core/records';
+import { SCORE_CATS, type ScoreCat } from '../sim/scoring';
 import { el, fmt } from './hud';
 
 const SLOPE_DOWN =
@@ -23,13 +25,14 @@ export class Screens {
   private readonly rScore: HTMLDivElement;
   private readonly rBest: HTMLDivElement;
   private readonly rRows: HTMLDivElement;
+  private readonly rRecs: HTMLDivElement;
 
   constructor(parent: HTMLElement) {
     this.title = el('div', 'screen title-screen', parent);
     const logo = el('div', 'logo', this.title);
     el('span', 'logo-a', logo, 'SUNSET');
     el('span', 'logo-b', logo, 'DASH');
-    el('div', 'tagline', this.title, 'Outrun the sunset!');
+    el('div', 'tagline', this.title, 'Fly fast & land GREAT to push the night back!');
     const hints = el('div', 'hints', this.title);
     const h1 = el('div', 'hint', hints);
     h1.innerHTML = `${SLOPE_DOWN}<b>Downhill</b><span>HOLD</span>`;
@@ -54,7 +57,8 @@ export class Screens {
     this.rScore = el('div', 'r-score', panel);
     this.rBest = el('div', 'r-best', panel);
     this.rRows = el('div', 'r-rows', panel);
-    this.retry = el('button', 'btn btn-main', panel, 'Retry');
+    this.rRecs = el('div', 'r-recs', panel);
+    this.retry = el('button', 'btn btn-main btn-again', panel, 'One more run!');
 
     this.rotate = el('div', 'screen rotate-screen', parent);
     el('div', 'rotate-icon', this.rotate);
@@ -70,7 +74,7 @@ export class Screens {
   }
 
   setBest(best: number): void {
-    this.best.textContent = best > 0 ? `Best ${fmt(best)}` : '';
+    this.best.innerHTML = best > 0 ? `<span>BEST</span> ${fmt(best)}` : '';
   }
 
   setRotate(on: boolean): void {
@@ -81,21 +85,41 @@ export class Screens {
     this.retry.classList.toggle('locked', locked);
   }
 
-  fillResults(run: Run, best: number, newBest: boolean): void {
+  fillResults(run: Run, rec: Records, broken: RecordKey[], newBest: boolean): void {
     const s = run.score;
     this.rTitle.textContent = 'Night fell';
     this.rScore.textContent = fmt(s.total);
-    this.rBest.textContent = newBest ? 'NEW BEST!' : `Best ${fmt(best)}`;
+    this.rBest.textContent = newBest ? 'NEW BEST!' : `Best ${fmt(rec.score)}`;
     this.rBest.classList.toggle('new', newBest);
-    const rows: [string, string][] = [
-      ['Distance', `${fmt(s.meters)} m`],
-      ['GREAT landings', String(s.greats)],
-      ['Fever time', `${s.feverTime.toFixed(1)} s`],
-      ['Sky touches', String(s.skyTouches)],
-      ['Coins', String(s.coins + s.blueCoins)],
-      ['Islands', String(s.islands)],
-      ['Max speed', `${Math.round(s.maxSpeed * CONFIG.speed.kmhPerPx)} km/h`],
+    // score breakdown: where the points came from (sums to the total)
+    const label: Record<ScoreCat, string> = {
+      dist: `Distance ${fmt(s.meters)} m`,
+      flight: 'Flights',
+      great: `GREAT ×${s.greats}`,
+      sky: `Sky touches ×${s.skyTouches}`,
+      coins: `Coins ×${s.coins + s.blueCoins}`,
+      island: `Islands ×${s.islands}`,
+    };
+    const rows: [string, number][] = SCORE_CATS.map((c) => [label[c], s.by[c]]);
+    if (s.feverBonus >= 1) rows.push([`Fever ×${CONFIG.score.feverMul} (${s.feverTime.toFixed(0)} s)`, s.feverBonus]);
+    this.rRows.innerHTML = rows
+      .filter(([, v]) => v >= 1)
+      .map(([k, v]) => `<div class="r-row"><span>${k}</span><b>+${fmt(v)}</b></div>`)
+      .join('');
+    // records: this run vs best, broken ones highlighted
+    const kmh = Math.round(s.maxSpeed * CONFIG.speed.kmhPerPx);
+    const recs: [RecordKey, string, string][] = [
+      ['distM', 'Distance', `${fmt(s.meters)} m`],
+      ['island', 'Island', String(run.island)],
+      ['streak', 'GREAT chain', String(s.bestStreak)],
+      ['kmh', 'Top speed', `${kmh} km/h`],
     ];
-    this.rRows.innerHTML = rows.map(([k, v]) => `<div class="r-row"><span>${k}</span><b>${v}</b></div>`).join('');
+    this.rRecs.innerHTML = recs
+      .map(([k, name, v]) => {
+        const hit = broken.includes(k);
+        const best = k === 'distM' ? `${fmt(rec[k])} m` : k === 'kmh' ? `${rec[k]} km/h` : String(rec[k]);
+        return `<div class="r-rec${hit ? ' hit' : ''}"><span>${name}</span><b>${v}</b><i>${hit ? 'RECORD!' : `best ${best}`}</i></div>`;
+      })
+      .join('');
   }
 }
