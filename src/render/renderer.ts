@@ -62,7 +62,7 @@ export class Renderer {
     this.run = run;
     this.cur = run.world.terrain.cursor();
     this.terrain.reset(run.world);
-    this.bird.reset();
+    this.bird.reset(run);
     this.fx.reset(run);
     if (this.debug) {
       if (this.lines) this.scene.remove(this.lines.group);
@@ -116,7 +116,7 @@ export class Renderer {
     this.terrain.update(x0 - margin, x1 + margin, pxPerWorld, s.grade);
     this.water.update(run.world, x0, x1, this.time, pxPerWorld, s.grade, s.horizon);
     this.coins.update(run.world, x0 - margin, x1 + margin, this.time, s.grade);
-    this.bird.update(dt, run, cx, cy, d1, r.birdScale, asleep);
+    this.bird.update(dt, run, cx, cy, d1, r.birdScale, asleep, s.grade);
     this.fx.update(dt, x0, r.cy - r.viewH / 2, r.z);
     this.night.update(x0, x1, run.night.x);
     this.lines?.update(run, x0 - margin, x1 + margin, cx, cy);

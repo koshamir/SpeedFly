@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../../config';
 import type { RGB } from '../palette';
-import frag from '../shaders/particle.frag.glsl?raw';
-import vert from '../shaders/particle.vert.glsl?raw';
+import { SpriteBatch } from './sprites';
 
 // Particle pool (§7.6): one instanced draw, fixed capacity, struct-of-arrays, no allocations after
 // construction. Atlas frames are white shapes tinted per particle.
@@ -135,11 +134,7 @@ export class Particles {
   readonly mesh: THREE.Mesh;
   readonly cap: number;
   n = 0;
-  private readonly geo: THREE.InstancedBufferGeometry;
-  private readonly aPos: THREE.InstancedBufferAttribute;
-  private readonly aSize: THREE.InstancedBufferAttribute;
-  private readonly aCol: THREE.InstancedBufferAttribute;
-  private readonly aFrame: THREE.InstancedBufferAttribute;
+  private readonly batch: SpriteBatch;
   // state
   private readonly x: Float32Array;
   private readonly y: Float32Array;
@@ -179,38 +174,8 @@ export class Particles {
     this.add = f();
     this.flags = new Uint8Array(cap);
     this.aspect = f();
-    const base = new THREE.PlaneGeometry(1, 1);
-    this.geo = new THREE.InstancedBufferGeometry();
-    this.geo.index = base.index;
-    this.geo.setAttribute('position', base.getAttribute('position'));
-    this.geo.setAttribute('uv', base.getAttribute('uv'));
-    const inst = (k: number): THREE.InstancedBufferAttribute => {
-      const a = new THREE.InstancedBufferAttribute(new Float32Array(cap * k), k);
-      a.setUsage(THREE.DynamicDrawUsage);
-      return a;
-    };
-    this.aPos = inst(3);
-    this.aSize = inst(2);
-    this.aCol = inst(4);
-    this.aFrame = inst(2);
-    this.geo.setAttribute('aPos', this.aPos);
-    this.geo.setAttribute('aSize', this.aSize);
-    this.geo.setAttribute('aCol', this.aCol);
-    this.geo.setAttribute('aFrame', this.aFrame);
-    this.geo.instanceCount = 0;
-    const mat = new THREE.ShaderMaterial({
-      vertexShader: vert,
-      fragmentShader: frag,
-      uniforms: { uMap: { value: atlas() }, uGrid: { value: new THREE.Vector2(COLS, ROWS) } },
-      transparent: true,
-      depthTest: false,
-      depthWrite: false,
-      blending: THREE.CustomBlending,
-      blendSrc: THREE.OneFactor,
-      blendDst: THREE.OneMinusSrcAlphaFactor,
-    });
-    this.mesh = new THREE.Mesh(this.geo, mat);
-    this.mesh.frustumCulled = false;
+    this.batch = new SpriteBatch(cap, atlas(), COLS, ROWS);
+    this.mesh = this.batch.mesh;
   }
 
   /** Spawn one particle; returns its index or -1 when the pool is full (oldest is never stolen). */
@@ -242,7 +207,7 @@ export class Particles {
 
   clear(): void {
     this.n = 0;
-    this.geo.instanceCount = 0;
+    this.batch.commit(0);
   }
 
   /** Advance and upload. (left, bottom) = world position of the view's bottom-left, z = zoom. */
@@ -262,8 +227,6 @@ export class Particles {
       this.rot[i] += this.vr[i] * dt;
       i++;
     }
-    const P = this.aPos.array as Float32Array, S = this.aSize.array as Float32Array;
-    const C = this.aCol.array as Float32Array, F = this.aFrame.array as Float32Array;
     for (let j = 0; j < this.n; j++) {
       const t = this.age[j] / this.life[j], fl = this.flags[j];
       const e = fl & PF.Grow ? 1 - (1 - t) * (1 - t) * (1 - t) : t;
@@ -283,20 +246,10 @@ export class Particles {
       }
       let a = this.rgba[j * 4 + 3] * Math.min(1, (1 - t) / 0.4);
       if (fl & PF.FadeIn) a *= Math.min(1, t / 0.25);
-      P[j * 3] = x;
-      P[j * 3 + 1] = y;
-      P[j * 3 + 2] = rot;
-      S[j * 2] = sx;
-      S[j * 2 + 1] = size * this.aspect[j];
-      C[j * 4] = this.rgba[j * 4];
-      C[j * 4 + 1] = this.rgba[j * 4 + 1];
-      C[j * 4 + 2] = this.rgba[j * 4 + 2];
-      C[j * 4 + 3] = a;
-      F[j * 2] = this.frame[j];
-      F[j * 2 + 1] = this.add[j];
+      const c = j * 4;
+      this.batch.set(j, x, y, rot, sx, size * this.aspect[j], this.rgba[c], this.rgba[c + 1], this.rgba[c + 2], a, this.frame[j], this.add[j]);
     }
-    this.geo.instanceCount = this.n;
-    this.aPos.needsUpdate = this.aSize.needsUpdate = this.aCol.needsUpdate = this.aFrame.needsUpdate = true;
+    this.batch.commit(this.n);
   }
 
   /** Swap-remove (order inside the pool is not meaningful). */

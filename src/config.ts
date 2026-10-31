@@ -354,6 +354,59 @@ export const CONFIG = {
     dial: 88,
   },
 
+  // Character rig (§7.5). Angles in rad (wing: + = tip down), lengths in R (birdRadius) unless noted.
+  bird: {
+    squashKick: 8, // landing: velocity kick of the body-height spring (min ~0.75)
+    squashK: 900,
+    squashDamp: 20,
+    dizzyTime: 0.9, // BAD landing: spiral eyes
+    happyTime: 1.2, // sky touch: happy face
+    blinkEvery: 3, // s
+    blinkTime: 0.12,
+    crawlFactor: 1.3, // grounded below sMin * this = crawling (fast flapping, sweat)
+    breathe: 0.04, // asleep
+    wingRest: 0.15,
+    wingOpen: -0.55,
+    wingTucked: 0.45,
+    flapHz: 2,
+    flapAmp: 0.35,
+    flapCrawlHz: 8,
+    flapCrawlAmp: 0.8,
+    gradeMix: 0.45, // how much the time-of-day grade tints the bird
+    nestLift: 0.3, // nest pivot above the start peak
+    // scarf: verlet chain, N nodes x scarfSeg world px (x bird scale)
+    scarfSeg: 12,
+    scarfAnchorX: -0.62,
+    scarfAnchorY: -0.2,
+    scarfDrag: 9, // 1/s: air brakes the nodes -> the scarf streams behind
+    scarfGravity: 500,
+    scarfFlutter: 5, // px of flutter at scarfFlutterV
+    scarfFlutterV: 1500,
+    scarfFlutterHz: 9, // rad/s base (+ speed * 0.008)
+    scarfW0: 11, // ribbon width at the neck / tip (world px)
+    scarfW1: 6,
+    scarfOutline: 3,
+    scarfGround: 6, // world px: scarf nodes stay this far above the ground
+  },
+
+  // PNG overrides for rig parts: '' = procedural. Image framing = one atlas cell: the part's pivot at
+  // the image centre, the image spans 4R x 4R (e.g. 'parts/body.png' served from public/).
+  birdParts: {
+    body: '',
+    belly: '',
+    wing: '',
+    beak: '',
+    faceOpen: '',
+    faceSquint: '',
+    faceHappy: '',
+    faceSparkle: '',
+    faceSleep: '',
+    faceDizzy: '',
+    sweat: '',
+    nest: '',
+    aura: '',
+  },
+
   fx: {
     maxParticles: 300,
     stretchK: 0.0025, // stretched particles: length x (1 + speed * k)
