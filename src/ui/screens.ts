@@ -17,6 +17,7 @@ export class Screens {
   readonly resume: HTMLButtonElement;
   readonly restart: HTMLButtonElement;
   readonly retry: HTMLButtonElement;
+  readonly fullscreen: HTMLButtonElement;
   private readonly best: HTMLDivElement;
   private readonly rTitle: HTMLDivElement;
   private readonly rScore: HTMLDivElement;
@@ -43,6 +44,9 @@ export class Screens {
     el('div', 'big-label', this.pause, 'PAUSED');
     this.resume = el('button', 'btn btn-main', this.pause, 'Resume');
     this.restart = el('button', 'btn btn-alt', this.pause, 'Restart');
+    this.fullscreen = el('button', 'btn btn-alt btn-fs', this.pause, 'Fullscreen');
+    const fsDoc = document as Document & { webkitFullscreenEnabled?: boolean };
+    if (!(document.fullscreenEnabled || fsDoc.webkitFullscreenEnabled)) this.fullscreen.style.display = 'none';
 
     this.results = el('div', 'screen results-screen', parent);
     const panel = el('div', 'panel', this.results);
@@ -56,7 +60,7 @@ export class Screens {
     el('div', 'rotate-icon', this.rotate);
     el('div', 'big-label', this.rotate, 'Rotate your phone');
 
-    for (const b of [this.resume, this.restart, this.retry]) b.setAttribute('data-ui', '');
+    for (const b of [this.resume, this.restart, this.retry, this.fullscreen]) b.setAttribute('data-ui', '');
     this.showOnly(null);
   }
 

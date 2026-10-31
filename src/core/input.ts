@@ -18,13 +18,24 @@ export class Input {
     root.addEventListener('pointercancel', this.up);
     root.addEventListener('lostpointercapture', this.up);
     window.addEventListener('blur', this.reset);
+    window.addEventListener('pagehide', this.reset);
+    // fallbacks: a release outside the root (capture lost silently) still counts
+    window.addEventListener('pointerup', this.up);
+    window.addEventListener('pointercancel', this.up);
+    window.addEventListener('touchend', (e) => e.touches.length === 0 && this.pointers.clear());
+    window.addEventListener('touchcancel', (e) => e.touches.length === 0 && this.pointers.clear());
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) this.reset();
     });
     window.addEventListener('keydown', this.keyDown);
     window.addEventListener('keyup', this.keyUp);
     const prevent = (e: Event): void => e.preventDefault();
-    root.addEventListener('contextmenu', prevent);
+    document.addEventListener('contextmenu', prevent);
+    // no text selection, except in form fields (Tune / debug panels)
+    document.addEventListener('selectstart', (e) => {
+      if (!(e.target instanceof Element && e.target.closest('input, textarea'))) e.preventDefault();
+    });
+    document.addEventListener('dragstart', prevent);
     document.addEventListener('gesturestart', prevent);
     document.addEventListener('dblclick', prevent);
     // [data-scroll] panels (Tune drawer) keep native scrolling and slider drags

@@ -245,6 +245,15 @@ export const CONFIG = {
     shakeDecay: 0.25,
   },
 
+  // Automatic quality step-down (M5): one level down when frames average > slowFrame for slowFor s.
+  perf: {
+    slowFrame: 0.02, // s
+    slowFor: 2, // s
+    dpr: [2, 1.5, 1], // per level
+    particles: [300, 180, 100],
+    grain: [1, 1, 0],
+  },
+
   view: {
     logW: 720,
     logH: 1280,

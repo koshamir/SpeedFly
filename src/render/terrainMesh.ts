@@ -125,7 +125,7 @@ export class TerrainMesh {
   }
 
   /** teacher: Touch Teacher rim strength 0..1 (§9). */
-  update(x0: number, x1: number, pxPerWorld: number, grade: RGB, teacher = 0): void {
+  update(x0: number, x1: number, pxPerWorld: number, grade: RGB, teacher = 0, grainK = 1): void {
     const W = CONFIG.render.chunkWidth;
     const i0 = Math.floor(x0 / W), i1 = Math.floor(x1 / W);
     for (const c of this.chunks) {
@@ -145,7 +145,7 @@ export class TerrainMesh {
     const u = this.material.uniforms;
     const R = CONFIG.render;
     u.uPxPerWorld.value = pxPerWorld;
-    u.uGrain.value = R.grain;
+    u.uGrain.value = R.grain * grainK;
     u.uTeacher.value = teacher;
     u.uSheen.value = R.sheen;
     u.uRimW.value = R.rimWidth;

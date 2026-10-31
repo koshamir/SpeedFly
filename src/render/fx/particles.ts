@@ -133,6 +133,8 @@ function atlas(): THREE.CanvasTexture {
 export class Particles {
   readonly mesh: THREE.Mesh;
   readonly cap: number;
+  /** Live budget (quality step-down), <= cap. */
+  limit: number;
   n = 0;
   private readonly batch: SpriteBatch;
   // state
@@ -156,6 +158,7 @@ export class Particles {
 
   constructor(cap = CONFIG.fx.maxParticles) {
     this.cap = cap;
+    this.limit = cap;
     const f = (k = 1): Float32Array => new Float32Array(cap * k);
     this.x = f();
     this.y = f();
@@ -180,7 +183,7 @@ export class Particles {
 
   /** Spawn one particle; returns its index or -1 when the pool is full (oldest is never stolen). */
   emit(frame: Frame, x: number, y: number, vx: number, vy: number, life: number, s0: number, s1: number, col: RGB, alpha: number, add = 0, grav = 0, drag = 0, rot = 0, vr = 0, flags = 0, aspect = 1): number {
-    if (this.n >= this.cap) return -1;
+    if (this.n >= this.limit) return -1;
     const i = this.n++;
     this.frame[i] = frame;
     this.x[i] = x;

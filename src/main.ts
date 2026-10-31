@@ -9,6 +9,7 @@ import { EventBus, type GameEvents } from './core/events';
 import { Input } from './core/input';
 import { Loop } from './core/loop';
 import { load, save } from './core/storage';
+import { Quality } from './render/quality';
 import { Renderer } from './render/renderer';
 import { Bot, type BotPolicy } from './sim/bot';
 import { Run } from './sim/run';
@@ -49,6 +50,8 @@ const coarse = matchMedia('(pointer: coarse)').matches;
 
 const bus = new EventBus<GameEvents>();
 const renderer = new Renderer(canvas, bus, debugOn);
+const quality = new Quality(params.has('quality') ? Number(params.get('quality')) | 0 : null);
+renderer.setQuality(quality.dpr, quality.particles, quality.grain);
 const input = new Input(root);
 const hud = new Hud(uiRoot);
 const popups = new Popups(uiRoot);
@@ -157,6 +160,19 @@ screens.restart.addEventListener('click', () => {
   startPlaying();
 });
 screens.retry.addEventListener('click', retry);
+screens.fullscreen.addEventListener('click', () => {
+  const d = document as Document & { webkitFullscreenElement?: Element; webkitExitFullscreen?: () => void };
+  const r = root as HTMLElement & { webkitRequestFullscreen?: () => void };
+  try {
+    if (document.fullscreenElement || d.webkitFullscreenElement) void (document.exitFullscreen?.() ?? d.webkitExitFullscreen?.());
+    else if (r.requestFullscreen) void r.requestFullscreen().catch(() => undefined);
+    else r.webkitRequestFullscreen?.();
+  } catch {
+    // not allowed (iframe without allowfullscreen, iOS): the button just does nothing
+  }
+});
+// alt-tab, a notification, a call, a click outside the itch iframe: pause (input resets itself)
+window.addEventListener('blur', () => state === 'playing' && setState('paused'));
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && state === 'playing') setState('paused');
   audio.setRunning(!document.hidden && state !== 'paused');
@@ -246,6 +262,10 @@ function frame(dt: number, alpha: number): void {
   if (bot && state === 'results' && stateT >= CONFIG.bot.autoRetry) retry();
 
   const asleep = state === 'title' || state === 'caught' || state === 'results';
+  if (state === 'playing' && stateT > 1 && quality.update(dt)) {
+    renderer.setQuality(quality.dpr, quality.particles, quality.grain);
+    resize();
+  }
   teacher.update(dt, run, teachCur, state === 'playing');
   renderer.teacher = teacher.alpha;
   // during a hit-stop the canvas keeps its last image; the sim keeps stepping
@@ -294,5 +314,7 @@ loop.start();
   renderer,
   fps: () => (elapsed > 0 ? frames / elapsed : 0),
   lastLand: () => lastLand,
+  quality: () => quality.level,
+  held: () => input.held,
   overWater: () => run.world.islands.some((i) => run.bird.x > i.lipX && run.bird.x < i.landingX && !run.bird.grounded),
 };

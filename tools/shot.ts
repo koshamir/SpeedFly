@@ -2,9 +2,8 @@
 // Each page waits for game states through window.__sd (exposed by main.ts) and captures them.
 //   npm run shot -- 01 02   only shots whose names start with these prefixes
 import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { chromium, type Browser, type Page } from 'playwright';
+import type { Browser, Page } from 'playwright';
+import { launch } from './browser';
 import { createServer } from 'vite';
 
 interface Shot {
@@ -81,33 +80,6 @@ const SESSIONS: Session[] = [
     shots: [{ name: '31-tune-hills', when: "sd.state() === 'playing' && sd.run().t > 2 && !!document.querySelector('.tune-hstats')?.textContent", delay: 300 }],
   },
 ];
-
-// Bundled chromium of this playwright version, else any cached ms-playwright chromium (newest first),
-// else installed Chrome (may be blocked by policy for headless).
-async function launch(): Promise<Browser> {
-  const args = ['--ignore-gpu-blocklist'];
-  if (existsSync(chromium.executablePath())) return chromium.launch({ args });
-  const cache = join(process.env.LOCALAPPDATA ?? join(homedir(), '.cache'), 'ms-playwright');
-  const builds = existsSync(cache)
-    ? readdirSync(cache)
-        .filter((d) => /^chromium-\d+$/.test(d))
-        .sort((a, b) => Number(b.split('-')[1]) - Number(a.split('-')[1]))
-    : [];
-  for (const d of builds) {
-    const exe = ['chrome-win64/chrome.exe', 'chrome-linux64/chrome', 'chrome-linux/chrome', 'chrome-mac/Chromium.app/Contents/MacOS/Chromium']
-      .map((p) => join(cache, d, p))
-      .find((p) => existsSync(p));
-    if (exe) return chromium.launch({ executablePath: exe, args });
-  }
-  for (const channel of ['chrome', 'msedge']) {
-    try {
-      return await chromium.launch({ channel, args });
-    } catch {
-      // try next
-    }
-  }
-  throw new Error('No browser for playwright: run `npx playwright install chromium`');
-}
 
 async function runSession(browser: Browser, base: string, s: Session): Promise<string[]> {
   const ctx = await browser.newContext(

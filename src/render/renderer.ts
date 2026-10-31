@@ -33,6 +33,8 @@ export class Renderer {
   /** Touch Teacher rim strength (set by main). */
   teacher = 0;
   private feverK = 0;
+  private dprCap = Infinity;
+  private grainK = 1;
   private snap = true;
   private time = 0;
   private readonly sky = new Sky();
@@ -79,8 +81,15 @@ export class Renderer {
     this.snap = true;
   }
 
+  /** Quality level (render/quality.ts): DPR cap, particle budget, grain. */
+  setQuality(dpr: number, particles: number, grain: number): void {
+    this.dprCap = dpr;
+    this.fx.particles.limit = particles;
+    this.grainK = grain;
+  }
+
   resize(W: number, H: number, coarse: boolean): Layout {
-    this.layout = computeLayout(W, H, coarse);
+    this.layout = computeLayout(W, H, coarse, this.dprCap);
     this.gl.setPixelRatio(this.layout.dpr);
     this.gl.setSize(W, H, false);
     return this.layout;
@@ -120,7 +129,7 @@ export class Renderer {
     const margin = CONFIG.render.meshStep * 4;
     this.sky.update(s, L.gw / L.gh, this.time, r.cx, r.cy, r.z, L.logW, L.logH);
     this.clouds.update(r.cx, r.cy, r.z, r.viewW, r.viewH, L.logW, this.time, s);
-    this.terrain.update(x0 - margin, x1 + margin, pxPerWorld, s.grade, this.teacher);
+    this.terrain.update(x0 - margin, x1 + margin, pxPerWorld, s.grade, this.teacher, this.grainK);
     this.water.update(run.world, x0, x1, this.time, pxPerWorld, s.grade, s.horizon);
     this.coins.update(run.world, x0 - margin, x1 + margin, this.time, s.grade);
     this.bird.update(dt, run, cx, cy, d1, r.birdScale, asleep, s.grade);

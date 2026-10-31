@@ -15,9 +15,9 @@ export interface Layout {
   landscapePhone: boolean;
 }
 
-export function computeLayout(W: number, H: number, coarse: boolean): Layout {
+export function computeLayout(W: number, H: number, coarse: boolean, dprCap = Infinity): Layout {
   const V = CONFIG.view;
-  const dpr = Math.min(window.devicePixelRatio || 1, V.dprMax);
+  const dpr = Math.min(window.devicePixelRatio || 1, V.dprMax, dprCap);
   let logW: number, logH: number, gw: number, gh: number;
   if (H / W >= V.logH / V.logW) {
     logW = V.logW;
