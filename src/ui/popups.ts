@@ -15,11 +15,15 @@ export class Popups {
   private readonly pool: Popup[] = [];
   private next = 0;
   private readonly banner: HTMLDivElement;
+  private readonly bannerMain: HTMLDivElement;
+  private readonly bannerSub: HTMLDivElement;
   private bannerTimer = 0;
 
   constructor(parent: HTMLElement) {
     for (let i = 0; i < CONFIG.ui.popupMax; i++) this.pool.push({ e: el('div', 'popup', parent), age: 1e9, lift: 0 });
     this.banner = el('div', 'banner', parent);
+    this.bannerMain = el('div', 'banner-main', this.banner);
+    this.bannerSub = el('div', 'banner-sub', this.banner);
     parent.style.setProperty('--pop-life', `${CONFIG.ui.popupLife}s`);
     parent.style.setProperty('--pop-rise', String(CONFIG.ui.popupRise));
   }
@@ -47,8 +51,9 @@ export class Popups {
     }
   }
 
-  showBanner(text: string): void {
-    this.banner.textContent = text;
+  showBanner(text: string, sub = ''): void {
+    this.bannerMain.textContent = text;
+    this.bannerSub.textContent = sub;
     this.banner.className = 'banner';
     void this.banner.offsetWidth;
     this.banner.className = 'banner show';

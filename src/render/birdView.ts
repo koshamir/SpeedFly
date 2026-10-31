@@ -410,6 +410,9 @@ export class BirdView {
   private dizzyT = 0;
   private happyT = 0;
   private blinkT = 2;
+  private n = 0;
+  // current body transform (shared by the part() calls of one frame)
+  private readonly xf = { ox: 0, oy: 0, ca: 1, sa: 0, rs: 1, sx: 1, sy: 1, size: 1, lr: 1, lg: 1, lb: 1 };
   private readonly cScarf: RGB = hexRgb(C.scarf);
   private readonly cOut: RGB = hexRgb(CONFIG.colors.outline);
 
@@ -512,24 +515,31 @@ export class BirdView {
     const rs = R * scale, size = 4 * rs;
     const lit = B.gradeMix;
     const lr = 1 + (grade[0] - 1) * lit, lg = 1 + (grade[1] - 1) * lit, lb = 1 + (grade[2] - 1) * lit;
-    const bt = this.batch;
-    let n = 0;
-    const part = (frame: number, lx: number, ly: number, rot: number, ksx: number, ksy: number, shade = 1, a = 1, add = 0): void => {
-      const px = lx * rs * sx, py = ly * rs * sy;
-      bt.set(n++, ox + px * ca - py * sa, oy + px * sa + py * ca, this.angle + rot, size * sx * ksx, size * sy * ksy, lr * shade, lg * shade, lb * shade, a, frame, add);
-    };
+    const bt = this.batch, X = this.xf;
+    X.ox = ox;
+    X.oy = oy;
+    X.ca = ca;
+    X.sa = sa;
+    X.rs = rs;
+    X.sx = sx;
+    X.sy = sy;
+    X.size = size;
+    X.lr = lr;
+    X.lg = lg;
+    X.lb = lb;
+    this.n = 0;
 
     // Fever aura (additive, pulsing, hue cycling)
     const auraA = spring(this.auraA, run.fever && !asleep ? 1 : 0, 40, 12, dt);
     if (auraA > 0.02) {
       const h = t * 0.6;
       const k = 1.45 + 0.12 * Math.sin(t * 9);
-      bt.set(n++, ox, oy, 0, size * k, size * k, 0.75 + 0.25 * Math.sin(h * 6.28), 0.75 + 0.25 * Math.sin(h * 6.28 + 2.1), 0.75 + 0.25 * Math.sin(h * 6.28 + 4.2), 0.6 * auraA, PART.aura, 1);
+      bt.set(this.n++, ox, oy, 0, size * k, size * k, 0.75 + 0.25 * Math.sin(h * 6.28), 0.75 + 0.25 * Math.sin(h * 6.28 + 2.1), 0.75 + 0.25 * Math.sin(h * 6.28 + 4.2), 0.6 * auraA, PART.aura, 1);
     }
-    part(PART.wing, 0.15, 0.05, wBase + flap * 0.8 + 0.25, wingScale, wingScale, 0.78);
-    part(PART.body, 0, 0, 0, 1, 1);
-    part(PART.belly, 0.22, -0.7, 0, 1, 1);
-    part(PART.beak, 0.9, -0.02, crawling ? 0.08 * Math.sin(t * 30) : 0, 1, 1);
+    this.part(PART.wing, 0.15, 0.05, wBase + flap * 0.8 + 0.25, wingScale, wingScale, 0.78);
+    this.part(PART.body, 0, 0, 0, 1, 1);
+    this.part(PART.belly, 0.22, -0.7, 0, 1, 1);
+    this.part(PART.beak, 0.9, -0.02, crawling ? 0.08 * Math.sin(t * 30) : 0, 1, 1);
     let face: number = PART.faceOpen;
     if (asleep) face = PART.faceSleep;
     else if (this.dizzyT > 0) face = PART.faceDizzy;
@@ -537,20 +547,26 @@ export class BirdView {
     else if (diving || crawling) face = PART.faceSquint;
     else if (run.fever) face = PART.faceSparkle;
     else if (this.blinkT < 0) face = PART.faceSquint;
-    part(face, 0.4, 0.3, 0, 1, 1);
-    part(PART.wing, -0.05, -0.12, wBase + flap, wingScale, wingScale);
+    this.part(face, 0.4, 0.3, 0, 1, 1);
+    this.part(PART.wing, -0.05, -0.12, wBase + flap, wingScale, wingScale);
     if (crawling) {
       const k = (t * 1.6) % 1;
-      part(PART.sweat, 0.62 + 0.2 * k, 0.98 - 0.25 * k, 0, 0.7, 0.7, 1, 1 - k);
+      this.part(PART.sweat, 0.62 + 0.2 * k, 0.98 - 0.25 * k, 0, 0.7, 0.7, 1, 1 - k);
     }
     // the nest stays on the start peak
     if (this.cur && b.x < 3000) {
       const nx = 0, ny = this.cur.height(nx) + B.nestLift * R;
-      bt.set(n++, nx, ny + lift * 0.5, 0, 4 * R * scale, 4 * R * scale, lr, lg, lb, 1, PART.nest, 0);
+      bt.set(this.n++, nx, ny + lift * 0.5, 0, 4 * R * scale, 4 * R * scale, lr, lg, lb, 1, PART.nest, 0);
     }
-    bt.commit(n);
+    bt.commit(this.n);
 
     this.updateScarf(dt, ox, oy, ca, sa, sx, sy, rs, speed, scale, lr, lg, lb);
+  }
+
+  /** One rig part: (lx, ly) body-local in R, rotation relative to the body, scale factors. */
+  private part(frame: number, lx: number, ly: number, rot: number, ksx: number, ksy: number, shade = 1, a = 1, add = 0): void {
+    const X = this.xf, px = lx * X.rs * X.sx, py = ly * X.rs * X.sy;
+    this.batch.set(this.n++, X.ox + px * X.ca - py * X.sa, X.oy + px * X.sa + py * X.ca, this.angle + rot, X.size * X.sx * ksx, X.size * X.sy * ksy, X.lr * shade, X.lg * shade, X.lb * shade, a, frame, add);
   }
 
   private updateScarf(dt: number, ox: number, oy: number, ca: number, sa: number, sx: number, sy: number, rs: number, speed: number, scale: number, lr: number, lg: number, lb: number): void {

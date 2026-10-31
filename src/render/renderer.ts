@@ -28,6 +28,8 @@ export class Renderer {
   by = 0;
   private run!: Run;
   private cur!: TerrainCursor;
+  /** Draw calls of the last frame (budget <= 30). */
+  drawCalls = 0;
   private snap = true;
   private time = 0;
   private readonly sky = new Sky();
@@ -133,5 +135,6 @@ export class Renderer {
     gl.setScissor(L.gx, L.H - L.gy - L.gh, L.gw, L.gh);
     gl.setScissorTest(true);
     gl.render(this.scene, cam);
+    this.drawCalls = gl.info.render.calls;
   }
 }

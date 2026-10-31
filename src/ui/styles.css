@@ -142,9 +142,18 @@ button {
   font-size: calc(var(--u) * 22px);
 }
 .tier {
+  display: inline-block;
   font-family: 'Lilita One', 'Fredoka', sans-serif;
   font-weight: 400;
   letter-spacing: calc(var(--u) * 2px);
+}
+.tier.bump {
+  animation: tierBump 0.35s cubic-bezier(0.3, 1.8, 0.5, 1);
+}
+@keyframes tierBump {
+  from {
+    transform: scale(1.6);
+  }
 }
 .dots {
   display: flex;
@@ -283,6 +292,16 @@ button {
 .banner.show {
   opacity: 1;
   transform: scale(1);
+}
+.banner-sub {
+  margin-top: calc(var(--u) * -6px);
+  font-family: 'Fredoka', sans-serif;
+  font-weight: 600;
+  font-size: calc(var(--u) * 34px);
+  color: #fff;
+  -webkit-text-stroke: calc(var(--u) * 7px) var(--ink);
+  letter-spacing: calc(var(--u) * 3px);
+  text-transform: uppercase;
 }
 
 /* ---------- screens ---------- */
@@ -545,6 +564,7 @@ button {
   margin-bottom: calc(var(--u) * 34px);
 }
 .r-row {
+  animation: rowIn 0.35s cubic-bezier(0.3, 1.4, 0.5, 1) backwards;
   display: flex;
   justify-content: space-between;
   padding: calc(var(--u) * 8px) calc(var(--u) * 6px);
@@ -807,4 +827,19 @@ button {
 .tune-pvonly.on {
   background: #b6ff5c;
   color: #241b3a;
+}
+
+/* results rows arrive one after another */
+.r-row:nth-child(1) { animation-delay: 0.25s; }
+.r-row:nth-child(2) { animation-delay: 0.32s; }
+.r-row:nth-child(3) { animation-delay: 0.39s; }
+.r-row:nth-child(4) { animation-delay: 0.46s; }
+.r-row:nth-child(5) { animation-delay: 0.53s; }
+.r-row:nth-child(6) { animation-delay: 0.6s; }
+.r-row:nth-child(7) { animation-delay: 0.67s; }
+@keyframes rowIn {
+  from {
+    transform: translateX(calc(var(--u) * -40px));
+    opacity: 0;
+  }
 }

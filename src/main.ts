@@ -148,7 +148,10 @@ bus.on('points', (e) => popup('points', `+${e.amount}`, 50));
 bus.on('feverStart', () => popup('fever', 'FEVER!', 170));
 bus.on('skyTouch', () => popup('sky', 'SKY TOUCH!', 120));
 bus.on('coin', (e) => e.type === 'blue' && popup('boost', 'BOOST!', 85));
-bus.on('island', (e) => popups.showBanner(`ISLAND ${e.index}`));
+bus.on('island', (e) => {
+  const isl = run.world.islands[e.index - 1];
+  popups.showBanner(`ISLAND ${e.index}`, isl ? CONFIG.palettes[isl.palette].name : '');
+});
 bus.on('caught', () => setState('caught'));
 const lastLand = { kind: '', t: -1 };
 bus.on('land', (e) => {

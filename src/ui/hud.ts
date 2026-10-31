@@ -67,6 +67,12 @@ export class Hud {
     if (run.tier !== s.tier) {
       s.tier = run.tier;
       this.tier.textContent = TIER_LABELS[run.tier] ?? '';
+      // spring bump when the tier goes up
+      if (run.tier > 0) {
+        this.tier.classList.remove('bump');
+        void this.tier.offsetWidth;
+        this.tier.classList.add('bump');
+      }
       this.tier.style.color = CONFIG.colors.tiers[run.tier] ?? '#fff';
       this.kmh.style.color = CONFIG.colors.tiers[run.tier] ?? '#fff';
     }

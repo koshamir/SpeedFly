@@ -136,7 +136,8 @@ async function runSession(browser: Browser, base: string, s: Session): Promise<s
     }
   }
   const fps = await page.evaluate(() => (window as unknown as { __sd: { fps?: () => number } }).__sd.fps?.() ?? -1);
-  if (fps >= 0) console.log(`  avg fps in headless: ${fps.toFixed(0)}`);
+  const calls = await page.evaluate(() => (window as unknown as { __sd: { renderer: { drawCalls: number } } }).__sd.renderer.drawCalls);
+  if (fps >= 0) console.log(`  avg fps in headless: ${fps.toFixed(0)}, draw calls (last frame): ${calls}`);
   await ctx.close();
   return errors;
 }
